@@ -4,6 +4,8 @@
 
 #include <utility>
 #include "Components/ActorComponent.h"
+#include "Structs/Obb.h"
+#include "DrawDebugHelpers.h"
 #include "CPlaceItem.generated.h"
 
 
@@ -17,6 +19,9 @@ public:
 	UCPlaceItem();
 
 	UPROPERTY(EditAnywhere)
+		bool bIsDebugMode;
+
+	UPROPERTY(EditAnywhere)
 		AActor* Item;
 
 	UPROPERTY(EditAnywhere)
@@ -24,11 +29,11 @@ public:
 
 	// The spacing along the X-axis
 	UPROPERTY(EditAnywhere)
-	float fSpacingX;
+	float SpacingX;
 
 	// The spacing along the Y-axis
 	UPROPERTY(EditAnywhere)
-		float fSpacingY;
+		float SpacingY;
 
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
@@ -52,16 +57,6 @@ protected:
 	// Places the items as shown by the phantom items
 	void PlaceItems();
 
-
-	// *** Deprecated*** Places a single item
-	void PlaceSingleItem();
-
-	// *** Deprecated*** Places a row of items
-	void PlaceRowItems();
-
-	// *** Deprecated*** Places items to fill the available space
-	void FillItems();
-
 private:
 
 	//**** UI TextmessageIDs
@@ -77,7 +72,7 @@ private:
 
 	std::pair<FHitResult, bool> RaytraceResults;
 
-	float fSpacingStep;
+	float SpacingStep;
 
 	UPROPERTY()
 	TArray<AActor*> PhantomItems;
@@ -94,8 +89,9 @@ private:
 	// Decreases the steps for spacing the items
 	void DecreaseSpacingStep();
 
+	// Returns a clone of the given actor
+	AActor* GetCloneActor(AActor* ActorToClone);
 
-
-	// *** Deprecated***Helper function: Places an item to a specific position
-	void PlaceItemAtPosition(FVector Position);
+	// Checks for collisions
+	bool CheckCollisions(AActor* Actor);
 };

@@ -59,6 +59,8 @@ void ARMyCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
 	 //PlayerInputComponent->BindAction("FillWithItems", IE_Pressed, this, &ARMyCharacter::FillItems);
 }
 
+
+
 //void ARMyCharacter::MoveForward(const float Val)
 //{
 //	float SpeedFactor = 1.0f; // TODO Hardcoded
