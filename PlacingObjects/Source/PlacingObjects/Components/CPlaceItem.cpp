@@ -32,12 +32,12 @@ void UCPlaceItem::BeginPlay()
 
 		AMyHUD* HUD = Cast<AMyHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
 
-		HUD->AppendText(FString("Test")); // ID 1
-		HUD->AppendText(FString("Test2")); // ID 2
-		HUD->AppendText(FString("Test3")); // ID 3
-		HUD->AppendText(FString("Test4")); // ID 4
-		HUD->RemoveText(2); // ID 2
-		HUD->ChangeText(1, FString("Blah")); // ID 1
+		//HUD->AppendText(FString("Test")); // ID 1
+		//HUD->AppendText(FString("Test2")); // ID 2
+		//HUD->AppendText(FString("Test3")); // ID 3
+		//HUD->AppendText(FString("Test4")); // ID 4
+		//HUD->RemoveText(2); // ID 2
+		//HUD->ChangeText(1, FString("Blah")); // ID 1
 
 		UInputComponent* PlayerInputComponent = Character->InputComponent;
 

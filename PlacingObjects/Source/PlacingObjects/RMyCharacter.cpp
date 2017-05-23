@@ -22,6 +22,9 @@ void ARMyCharacter::BeginPlay()
 	print("Left Mouse = Place one item");
 	print("Shift + Left Mouse = Place a row of items");
 	print("CTRL + Left Mouse = Fill surface with items");
+	print("MouseWheel = Change Spacing (in combination with Shift or CTRL)");
+	print("1 = Decrease spacing steps for a smother spacing");
+	print("2 = Increase spacing step");
 
 	// Attach the item to the player	
 	//if (Item != nullptr) {
