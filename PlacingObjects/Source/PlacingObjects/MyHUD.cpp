@@ -68,7 +68,7 @@ void AMyHUD::RemoveText(const int TextNumber)
 void AMyHUD::OnActorSpawned(AActor* SpawnedActor)
 {
 	// TODO Check if this actor implements the interface to get its stats
-	UE_LOG(LogTemp, Warning, TEXT("Actor %s spawned"), *SpawnedActor->GetName());
+	//UE_LOG(LogTemp, Warning, TEXT("AMyHUD::OnActorSpawned: Actor %s spawned"), *SpawnedActor->GetName());
 
 	// TODO The problem here is that we spawn clones of the object everytime we move the mouse cursor which will then fire the callback a lot
 }

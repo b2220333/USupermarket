@@ -3,6 +3,7 @@
 #pragma once
 
 #include <utility>
+// #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
 #include "RMyCharacter.generated.h"
 
@@ -30,29 +31,5 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	
-protected:
 
-	//// Handles moving forward/backward
-	//void MoveForward(const float Val);
-
-	//// Handles strafing Left/Right
-	//void MoveRight(const float Val);
-
-	//std::pair<FHitResult, bool> StartRaytrace();
-
-	//// Places a single item
-	//void PlaceSingleItem();
-
-	//// Places a row of items
-	//void PlaceRowItems();
-
-	//// Places items to fill the available space
-	//void FillItems();
-
-private:
-	// Helper function: Places an item to a specific position
-	//void PlaceItemAtPosition(FVector Position);	
-
-	//UStaticMeshComponent* GetStaticMesh(AActor* Actor);
 };

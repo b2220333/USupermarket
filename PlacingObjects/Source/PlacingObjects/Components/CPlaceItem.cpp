@@ -13,10 +13,10 @@ UCPlaceItem::UCPlaceItem()
 	PrimaryComponentTick.bCanEverTick = true;
 
 	RaycastRange = 200;
-	fSpacingX = 0;
-	fSpacingY = 0;
+	SpacingX = 1;
+	SpacingY = 1;
 
-	fSpacingStep = 1;
+	SpacingStep = 5.0f;
 }
 
 // Called when the game starts
@@ -32,12 +32,12 @@ void UCPlaceItem::BeginPlay()
 
 		AMyHUD* HUD = Cast<AMyHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
 
-		HUD->AppendText(FString("Test")); // ID 1
-		HUD->AppendText(FString("Test2")); // ID 2
-		HUD->AppendText(FString("Test3")); // ID 3
-		HUD->AppendText(FString("Test4")); // ID 4
-		HUD->RemoveText(2); // ID 2
-		HUD->ChangeText(1, FString("Blah")); // ID 1
+		//HUD->AppendText(FString("Test")); // ID 1
+		//HUD->AppendText(FString("Test2")); // ID 2
+		//HUD->AppendText(FString("Test3")); // ID 3
+		//HUD->AppendText(FString("Test4")); // ID 4
+		//HUD->RemoveText(2); // ID 2
+		//HUD->ChangeText(1, FString("Blah")); // ID 1
 
 		UInputComponent* PlayerInputComponent = Character->InputComponent;
 
@@ -67,9 +67,9 @@ void UCPlaceItem::BeginPlay()
 	}
 
 	// *** UI Text
-	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(fSpacingStep), false);
-	GEngine->AddOnScreenDebugMessage(iTextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(fSpacingX), false);
-	GEngine->AddOnScreenDebugMessage(iTextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(fSpacingY), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(SpacingStep), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(SpacingX), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(SpacingY), false);
 }
 
 // Called every frame
@@ -153,24 +153,24 @@ void UCPlaceItem::ChangeSpacing(const float Val)
 
 	if (bLeftShiftIsHeldDown)
 	{
-		fSpacingX += Val / fSpacingStep;
+		SpacingX += Val / SpacingStep;
 
-		if (fSpacingX < 0) fSpacingX = 0;
+		if (SpacingX < 1) SpacingX = 1;
 
 		LocationToPlaceItem = FVector::ZeroVector; // Reset this vector to force a new raytrace
 	}
 
 	if (bLeftControlIsHeldDown)
 	{
-		fSpacingY += Val / fSpacingStep;
+		SpacingY += Val / SpacingStep;
 
-		if (fSpacingY < 0) fSpacingY = 0;
+		if (SpacingY < 1) SpacingY = 1;
 
 		LocationToPlaceItem = FVector::ZeroVector; // Reset this vector to force a new raytrace
 	}
 
-	GEngine->AddOnScreenDebugMessage(iTextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(fSpacingX), false);
-	GEngine->AddOnScreenDebugMessage(iTextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(fSpacingY), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(SpacingX), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(SpacingY), false);
 
 }
 
@@ -193,26 +193,35 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 	if (Character == nullptr) return;
 
 	ABlockingVolume* BlockingVol = Cast<ABlockingVolume>(Hit.GetActor());
+	Item->SetActorRotation(FQuat(0, 0, 0, 0)); // Set zero rotation before checking for extends
 
 	// Get position and bounds of the item
 	FVector ItemOrigin;
 	FVector ItemBoundExtend;
 	Item->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
 
-	// Get Position and bound of the blocking volume
+	Item->SetActorRotation(BlockingVol->GetActorRotation()); // align rotation to blocking volume to measure the original extends
+	
 	FVector BlockingVolumeOrigin;
-	FVector BlockingVolumeExtend;
-	BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, BlockingVolumeExtend);
+	FVector NotUsed;
+
+	BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, NotUsed);
+
+	// Use the extends of the brush
+	FVector BlockingVolumeExtend = BlockingVol->Brush->Bounds.BoxExtent;
+
+	// Get direction of x, y and z axis
+	FVector XAxis = BlockingVol->GetActorForwardVector();
+	FVector YAxis = BlockingVol->GetActorRightVector();
+	FVector ZAxis = BlockingVol->GetActorUpVector();
 
 	// Calculating new position
 	FVector Position = Hit.ImpactPoint;
-
 	FVector NewPosition = FVector(Position.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z);
 
 	// Check if we really moved the item this frame
 	if (NewPosition.Equals(LocationToPlaceItem) == false)
 	{
-		// UE_LOG(LogTemp, Warning, TEXT("Old Position %s New Position %s"), *LocationToPlaceItem.ToCompactString(), *NewPosition.ToCompactString());
 		LocationToPlaceItem = NewPosition;
 
 		// Delete all former phantom items
@@ -230,124 +239,87 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 		bool bLeftControlIsHeldDown = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftControl); // Fill with items
 
 		FVector StartVector;
+
 		if (bLeftShiftIsHeldDown)
 		{
-			AmountOfItemsPossibleX = FMath::FloorToInt(BlockingVolumeExtend.X / (ItemBoundExtend.X + fSpacingX / 2));
+			// Placing a row
 
-			StartVector = FVector(BlockingVolumeOrigin.X - BlockingVolumeExtend.X + ItemBoundExtend.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z);
+			// Calculate how many items we can place in a row
+			AmountOfItemsPossibleX = FMath::FloorToInt((2 * BlockingVolumeExtend.X) / (2 * ItemBoundExtend.X * SpacingX));
+
+			//UE_LOG(LogTemp, Warning, TEXT("Block Extend %f"), BlockingVolumeExtend.X);
+			//UE_LOG(LogTemp, Warning, TEXT("Item Extend %f"), ItemBoundExtend.X);
+			//UE_LOG(LogTemp, Warning, TEXT("Amount %i"), AmountOfItemsPossibleX);
+
+			// Calculate an intersection point between a line from the impact point to the lower (relative) x axis of the blocking volume
+			// to determine where to start the row
+			FVector RaycastImpactPoint = NewPosition;
+			FVector SecondPointOfLine = RaycastImpactPoint - BlockingVolumeExtend.X * XAxis;
+			FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis;
+			FVector NormalVectorOfPlane = XAxis;
+
+			FVector IntersectionLinePlane = FMath::LinePlaneIntersection(RaycastImpactPoint, SecondPointOfLine, BasePointPlane, NormalVectorOfPlane);
+
+			StartVector = IntersectionLinePlane + ItemBoundExtend.X * XAxis; // Move the start point more inside the blocking volume depending on the extend of the item
+
+			if (bIsDebugMode)
+			{
+				DrawDebugPoint(GetWorld(), StartVector, 5, FColor::Blue, false, 3);
+				DrawDebugLine(GetWorld(), BasePointPlane, BasePointPlane + BlockingVolumeExtend.Y * YAxis * 2, FColor::Blue, false, 3, 5);
+			}
 		}
 		else if (bLeftControlIsHeldDown)
 		{
-			AmountOfItemsPossibleX = FMath::FloorToInt(BlockingVolumeExtend.X / (ItemBoundExtend.X + fSpacingX / 2));
-			AmountOfItemsPossibleY = FMath::FloorToInt(BlockingVolumeExtend.Y / (ItemBoundExtend.Y + fSpacingY / 2));
+			// Fill with items
 
-			StartVector = FVector(BlockingVolumeOrigin.X - BlockingVolumeExtend.X + ItemBoundExtend.X, BlockingVolumeOrigin.Y - BlockingVolumeExtend.Y + ItemBoundExtend.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z);
+			// Calculate the amount of items we can place on the shelf in x and y axis (column and row)
+			AmountOfItemsPossibleX = FMath::FloorToInt(BlockingVolumeExtend.X / (ItemBoundExtend.X * SpacingX));
+			AmountOfItemsPossibleY = FMath::FloorToInt(BlockingVolumeExtend.Y / (ItemBoundExtend.Y * SpacingY));
+
+			// The lower left corner of the blocking volume
+			FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis - BlockingVolumeExtend.Z * ZAxis;
+			
+			StartVector = BasePointPlane + ItemBoundExtend.X * XAxis + ItemBoundExtend.Y * YAxis + ItemBoundExtend.Z * ZAxis;
+
+			if (bIsDebugMode)
+			{
+				DrawDebugPoint(GetWorld(), StartVector, 5, FColor::Blue, false, 3);
+				DrawDebugLine(GetWorld(), BasePointPlane, BasePointPlane + BlockingVolumeExtend.Y * YAxis * 2, FColor::Blue, false, 3, 5);
+				DrawDebugLine(GetWorld(), BasePointPlane, BasePointPlane + BlockingVolumeExtend.X * XAxis * 2, FColor::Blue, false, 3, 5);
+			}
 		}
 		else
 		{
 			StartVector = NewPosition;
 		}
 
+		// Now place the items
 		for (size_t i = 0; i < AmountOfItemsPossibleX; i++)
 		{
 			for (size_t j = 0; j < AmountOfItemsPossibleY; j++)
 			{
-				// *** Create clones of the item to display
-				FActorSpawnParameters Parameters;
-				Parameters.Template = Item;
-				AActor* Clone = GetWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Parameters);
+				// Create clone of the item to display
+				AActor* Clone = GetCloneActor(Item);
+
 				if (Clone == nullptr) return;
 
 				PhantomItems.Add(Clone);
-				// ***
 
-				float BlockingVolumeRotation = BlockingVol->GetActorRotation().GetDenormalized().Yaw;
+				// The points within the blocking volume
+				FVector RelativePointOnXAxis = SpacingX * XAxis * 2 * ItemBoundExtend.X * i ;
+				FVector RelativePointOnYAxis = SpacingY * YAxis * 2 * ItemBoundExtend.Y * j;
 
-				NewPosition = FVector(StartVector.X + i * (ItemBoundExtend.X * 2 + fSpacingX), StartVector.Y + j * (ItemBoundExtend.Y * 2 + fSpacingY), StartVector.Z);
+				NewPosition = StartVector + RelativePointOnXAxis + RelativePointOnYAxis;
 
-
-
-				if (BlockingVolumeRotation <= 45 || BlockingVolumeRotation >= 315)
+				if (bIsDebugMode)
 				{
-					// Blocking volume is mostly rotated torwards world rotation the world 
-					// UE_LOG(LogTemp, Warning, TEXT("Rotation is 12 o'clock"));
-					NewPosition = FVector(StartVector.X + i * (ItemBoundExtend.X * 2 + fSpacingX), StartVector.Y + j * (ItemBoundExtend.Y * 2 + fSpacingY), StartVector.Z);
+					DrawDebugPoint(GetWorld(), NewPosition, 10, FColor::Green, false, 3);
 				}
-				else if (225 <= BlockingVolumeRotation && BlockingVolumeRotation <= 315)
-				{
-					// Blocking volume is mostly rotated 90 degree
-				    // UE_LOG(LogTemp, Warning, TEXT("Rotation is 9 o'clock"));
-
-				}
-				else if (135 <= BlockingVolumeRotation && BlockingVolumeRotation <= 225)
-				{
-					// Blocking volume is mostly rotated 180 degree
-					// UE_LOG(LogTemp, Warning, TEXT("Rotation is 6 o'clock"));
-				//	float NewX = StartVector.X + BlockingVolumeExtend.X - 0 * ItemBoundExtend.X * 2;
-
-			//		NewPosition = FVector(NewX, StartVector.Y + j * (ItemBoundExtend.Y * 2 + fSpacingY), StartVector.Z);
-					// StartVector.X - i * (ItemBoundExtend.X * 2 + fSpacingX)
-				}
-				else if (45 <= BlockingVolumeRotation && BlockingVolumeRotation <= 135)
-				{
-					// Blocking volume is mostly rotated 270 degree
-				    // UE_LOG(LogTemp, Warning, TEXT("Rotation is 3 o'clock"));
-				}
-
 
 				Clone->SetActorLocation(NewPosition);
 
-				// *** Check for collisions
-				FHitResult OutHitRes;
-				Clone->AddActorWorldOffset(FVector(0.f, 0.f, .1f), true, &OutHitRes);
-
-				if (OutHitRes.GetActor() != nullptr && OutHitRes.GetActor()->Tags.Contains("Shelf") == false
-					&& PhantomItems.Contains(OutHitRes.GetActor()) == false)
-				{
-
-					// There is a collision with another item
-					// UE_LOG(LogTemp, Warning, TEXT("Overlaping with %s"), *OutHitRes.GetActor()->GetName());
-
-					if (RedMaterial != nullptr)
-					{
-						for (auto &elem : PhantomItems)
-						{
-							// Color it red
-							UStaticMeshComponent* Mesh = GetStaticMesh(elem);
-
-							if (Mesh != nullptr)
-							{
-								Mesh->SetMaterial(0, RedMaterial);
-							}
-						}
-					}
-
-					bItemCanBePlaced = false;
-
-					// We need to return here, otherwise another item in the row which is not colliding would turn
-					// the 'bItemCanBePlaced' to true. Only the items before the collision will be shown. If this is not 
-					// what we want, we also can do something like bItemCanBePlaced = bItemCanBePlaced && false and do not return here
-					return;
-				}
-				else
-				{
-					if (ItemMaterial != nullptr)
-					{
-						for (auto &elem : PhantomItems)
-						{
-							// Color it normal
-							UStaticMeshComponent* Mesh = GetStaticMesh(elem);
-
-							if (Mesh != nullptr)
-							{
-								Mesh->SetMaterial(0, ItemMaterial);
-							}
-
-						}
-					}
-
-					bItemCanBePlaced = true;
-				}
+				bItemCanBePlaced = CheckCollisions(Clone);
+				if (bItemCanBePlaced == false) return;
 			}
 		}
 	}
@@ -367,120 +339,78 @@ UStaticMeshComponent* UCPlaceItem::GetStaticMesh(AActor* Actor)
 
 void UCPlaceItem::IncreaseSpacingStep()
 {
-	fSpacingStep *= 2;
-	if (fSpacingStep <= 0) fSpacingStep = 0.1f;
-	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(1 / fSpacingStep), false);
+	SpacingStep *= 2;
+	if (SpacingStep <= 0) SpacingStep = 0.1f;
+	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(1 / SpacingStep), false);
 }
 
 void UCPlaceItem::DecreaseSpacingStep()
 {
-	fSpacingStep /= 2;
+	SpacingStep /= 2;
 
-	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(1 / fSpacingStep), false);
+	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(1 / SpacingStep), false);
 }
 
-
-
-
-
-// Deprecated
-void UCPlaceItem::PlaceItemAtPosition(FVector Position) {
-
-	//if (bItemCanBePlaced == false) return;
-
-	//FActorSpawnParameters Parameters;
-	//Parameters.Template = Item;
-	//AActor* Clone = GetWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Parameters);
-	//if (Clone == nullptr) return;
-
-	//Clone->SetActorLocation(Position);
-}
-
-// Deprecated
-void UCPlaceItem::PlaceSingleItem()
+AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 {
-	// PlaceItemAtPosition(LocationToPlaceItem);
-	PlaceItems();
+
+	// TODO Use object pool
+	FActorSpawnParameters Parameters;
+	Parameters.Template = ActorToClone;
+	AActor* Clone = GetWorld()->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Parameters);
+	return Clone;
 }
 
-// Deprecated
-void UCPlaceItem::PlaceRowItems()
+bool UCPlaceItem::CheckCollisions(AActor * Actor)
 {
-	PlaceItems();
+	// *** Check for collisions
+	FHitResult OutHitRes;
+	Actor->AddActorWorldOffset(FVector(0.f, 0.f, .1f), true, &OutHitRes);
 
-	//// *** Raytracing *** 
-	//// std::pair<FHitResult, bool> RaytraceResults = StartRaytrace();
-	//if (RaytraceResults.second == false) return; // We didn't hit a blocking volume
+	if (OutHitRes.GetActor() != nullptr && OutHitRes.GetActor()->Tags.Contains("Shelf") == false
+		&& PhantomItems.Contains(OutHitRes.GetActor()) == false)
+	{
 
-	//FHitResult Hit = RaytraceResults.first;
-	//ABlockingVolume* BlockingVol = Cast<ABlockingVolume>(Hit.GetActor());
+		// There is a collision with another item
+		// UE_LOG(LogTemp, Warning, TEXT("Overlaping with %s"), *OutHitRes.GetActor()->GetName());
 
-	//// Get position and bounds of the item
-	//FVector ItemOrigin;
-	//FVector ItemBoundExtend;
-	//Item->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
+		if (RedMaterial != nullptr)
+		{
+			for (auto &elem : PhantomItems)
+			{
+				// Color it red
+				UStaticMeshComponent* Mesh = GetStaticMesh(elem);
 
-	//// Get Position and bound of the blocking volume
-	//FVector BlockingVolumeOrigin;
-	//FVector BlockingVolumeExtend;
-	//BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, BlockingVolumeExtend);
+				if (Mesh != nullptr)
+				{
+					Mesh->SetMaterial(0, RedMaterial);
+				}
+			}
+		}
 
-	//// Calculating new positions
-	//FVector Position = Hit.ImpactPoint;
+		// We need to return here, otherwise another item in the row which is not colliding would turn
+		// the 'bItemCanBePlaced' to true. Only the items before the collision will be shown. If this is not 
+		// what we want, we also can do something like bItemCanBePlaced = bItemCanBePlaced && false and do not return here
+		return false;
+	}
+	else
+	{
+		if (ItemMaterial != nullptr)
+		{
+			for (auto &elem : PhantomItems)
+			{
+				// Color it normal
+				UStaticMeshComponent* Mesh = GetStaticMesh(elem);
 
-	//int AmountOfItemsPossible = BlockingVolumeExtend.X / (ItemBoundExtend.X + fSpacingX / 2);
+				if (Mesh != nullptr)
+				{
+					Mesh->SetMaterial(0, ItemMaterial);
+				}
 
-	//UE_LOG(LogTemp, Warning, TEXT("Placing %i items"), AmountOfItemsPossible);
-
-	////FVector StartVector = FVector(BlockingVolumeOrigin.X - BlockingVolumeExtend.X + ItemBoundExtend.X, Position.Y, Position.Z + ItemBoundExtend.Z - (BlockingVolumeExtend.Z * 2));
-	//FVector StartVector = FVector(BlockingVolumeOrigin.X - BlockingVolumeExtend.X + ItemBoundExtend.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z);
-
-	//for (size_t i = 0; i < AmountOfItemsPossible; i++)
-	//{
-	//	FVector NewPosition = FVector(StartVector.X + i * (ItemBoundExtend.X * 2 + fSpacingX), StartVector.Y, StartVector.Z);
-	//	PlaceItemAtPosition(NewPosition);
-	//}
-}
-
-// Deprecated
-void UCPlaceItem::FillItems()
-{
-	PlaceItems();
-
-	//// *** Raytracing *** 
-	//// std::pair<FHitResult, bool> RaytraceResults = StartRaytrace();
-	//if (RaytraceResults.second == false) return; // We didn't hit a blocking volume
-
-	//FHitResult Hit = RaytraceResults.first;
-	//ABlockingVolume* BlockingVol = Cast<ABlockingVolume>(Hit.GetActor());
-
-	//// Get position and bounds of the item
-	//FVector ItemOrigin;
-	//FVector ItemBoundExtend;
-	//Item->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
-
-	//// Get Position and bound of the blocking volume
-	//FVector BlockingVolumeOrigin;
-	//FVector BlockingVolumeExtend;
-	//BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, BlockingVolumeExtend);
-
-	//FVector Position = Hit.ImpactPoint;
-
-	//int AmountOfItemsPossibleX = BlockingVolumeExtend.X / ItemBoundExtend.X;
-	//int AmountOfItemsPossibleY = BlockingVolumeExtend.Y / ItemBoundExtend.Y;
-
-	//UE_LOG(LogTemp, Warning, TEXT("Placing %i items"), AmountOfItemsPossibleX * AmountOfItemsPossibleY);
-
-	//FVector StartVector = FVector(BlockingVolumeOrigin.X - BlockingVolumeExtend.X + ItemBoundExtend.X, BlockingVolumeOrigin.Y - BlockingVolumeExtend.Y + ItemBoundExtend.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z);
-
-	//for (size_t i = 0; i < AmountOfItemsPossibleX; i++)
-	//{
-	//	for (size_t j = 0; j < AmountOfItemsPossibleY; j++)
-	//	{
-	//		FVector NewPosition = FVector(StartVector.X + i * ItemBoundExtend.X * 2, StartVector.Y + j * ItemBoundExtend.Y * 2, StartVector.Z);
-	//		PlaceItemAtPosition(NewPosition);
-	//	}
-	//}
+			}
+		}
+		return true;
+	}
 }
 
 
