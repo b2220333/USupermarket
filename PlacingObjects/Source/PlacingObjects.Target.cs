@@ -5,21 +5,24 @@ using System.Collections.Generic;
 
 public class PlacingObjectsTarget : TargetRules
 {
-	public PlacingObjectsTarget(TargetInfo Target)
+	public PlacingObjectsTarget(TargetInfo Target) : base (Target)
 	{
 		Type = TargetType.Game;
+
+        ExtraModuleNames.Add("PlacingObjects");
 	}
 
 	//
 	// TargetRules interface.
 	//
 
-	public override void SetupBinaries(
-		TargetInfo Target,
-		ref List<UEBuildBinaryConfiguration> OutBuildBinaryConfigurations,
-		ref List<string> OutExtraModuleNames
-		)
-	{
-		OutExtraModuleNames.AddRange( new string[] { "PlacingObjects" } );
-	}
+    //// Deprectaed in 4.16
+	//public override void SetupBinaries(
+	//	TargetInfo Target,
+	//	ref List<UEBuildBinaryConfiguration> OutBuildBinaryConfigurations,
+	//	ref List<string> OutExtraModuleNames
+	//	)
+	//{
+	//	OutExtraModuleNames.AddRange( new string[] { "PlacingObjects" } );
+	//}
 }
