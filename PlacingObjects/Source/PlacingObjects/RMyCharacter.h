@@ -3,7 +3,8 @@
 #pragma once
 
 #include <utility>
-// #include "DrawDebugHelpers.h"
+#include "Runtime/UMG/Public/UMG.h"
+// #include "Slate.h"
 #include "GameFramework/Character.h"
 #include "RMyCharacter.generated.h"
 
@@ -15,12 +16,9 @@ class PLACINGOBJECTS_API ARMyCharacter : public ACharacter
 public:
 	// Sets default values for this character's properties
 	ARMyCharacter();
-
-	//UPROPERTY(EditAnywhere)
-	//	AActor* Item;
-
-	//UPROPERTY(EditAnywhere)
-	//	float RaycastRange;
+	
+	UPROPERTY(EditAnywhere, Category = UI)
+		TSubclassOf<UUserWidget> WidgetTemplate; // The template of to HUD widged to display the list of items
 
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;

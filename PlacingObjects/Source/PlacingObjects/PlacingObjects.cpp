@@ -2,4 +2,4 @@
 
 #include "PlacingObjects.h"
 
-IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, PlacingObjects, "PlacingObjects" );
+ IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, PlacingObjects, "PlacingObjects" );
