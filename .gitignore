@@ -69,7 +69,7 @@
 **/DerivedDataCache/*
 
 # Cache folder for downloaded assets
-**/Content/Cache/*
+# **/Content/Cache/*
 
 # Mac Artifacts
 .DS_Store
