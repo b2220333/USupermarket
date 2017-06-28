@@ -10,7 +10,7 @@
 - "R = Rotate item"
 - "F" = Toggle Placing/Selecting Mode
 - "+", "-" = Increase/Decrease stack height
-- "Space = Spawn item" // Right now only if there is a Mug.uasset in the Chace folder
+- "TAB" = Open list of spawnable items. Click on an item to spawn it. TAB again to close the list
 
 ## Setting up Shelves:
 - Add a BlockingVolume to the scene

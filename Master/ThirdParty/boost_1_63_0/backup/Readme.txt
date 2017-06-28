@@ -1,0 +1,1 @@
+The folder boost_PureMongoDB_Backup contains just the boost parts which are used by the MongoDBcxx-driver.
