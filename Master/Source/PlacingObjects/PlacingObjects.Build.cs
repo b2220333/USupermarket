@@ -3,11 +3,9 @@
 using UnrealBuildTool;
 using System.IO;
 
-public class PlacingObjects : ModuleRules
-{
-    public PlacingObjects(ReadOnlyTargetRules Target) : base (Target)
-    {
-        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "UMG", "Slate", "SlateCore" });
+public class PlacingObjects : ModuleRules {
+    public PlacingObjects(ReadOnlyTargetRules Target) : base(Target) {
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "UMG", "Slate", "SlateCore", "UTags", "Json", "JsonUtilities" });
 
         // Uncomment if you are using Slate UI
         PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
@@ -24,32 +22,26 @@ public class PlacingObjects : ModuleRules
 
     // *** MONGODB Stuff
 
-    private string BoostPath
-    {
+    private string BoostPath {
         get { return "boost_1_63_0"; }
     }
 
-    private string MongoCPath
-    {
+    private string MongoCPath {
         get { return "mongo-c-driver"; }
     }
 
-    private string MongoCXXPath
-    {
+    private string MongoCXXPath {
         get { return "mongo-cxx-driver"; }
     }
-    private string ModulePath
-    {
+    private string ModulePath {
         get { return ModuleDirectory; }
     }
 
-    private string ThirdPartyPath
-    {
+    private string ThirdPartyPath {
         get { return Path.GetFullPath(Path.Combine(ModulePath, "../../ThirdParty")); }
     }
 
-    private void CopyToBinaries(string Filepath, ReadOnlyTargetRules Target)
-    {
+    private void CopyToBinaries(string Filepath, ReadOnlyTargetRules Target) {
         string binariesDir = Path.Combine(ModulePath, "../../Binaries", Target.Platform.ToString());
         string filename = Path.GetFileName(Filepath);
 
@@ -60,12 +52,10 @@ public class PlacingObjects : ModuleRules
             File.Copy(Filepath, Path.Combine(binariesDir, filename), true);
     }
 
-    private bool LoadMongoDB(ReadOnlyTargetRules Target)
-    {
+    private bool LoadMongoDB(ReadOnlyTargetRules Target) {
         bool isLibrarySupported = false;
 
-        if (Target.Platform == UnrealTargetPlatform.Win64)
-        {
+        if (Target.Platform == UnrealTargetPlatform.Win64) {
             isLibrarySupported = true;
 
             string BoostLibPath = Path.Combine(ThirdPartyPath, BoostPath, "stage/lib");
@@ -98,8 +88,7 @@ public class PlacingObjects : ModuleRules
             CopyToBinaries(Path.Combine(ThirdPartyPath, MongoCXXPath, "bin/mongocxx.dll"), Target);
         }
 
-        if (isLibrarySupported)
-        {
+        if (isLibrarySupported) {
             string BoostInclPath = Path.GetFullPath(Path.Combine(ThirdPartyPath, BoostPath));
             string MongoCInclBsonPath = Path.GetFullPath(Path.Combine(ThirdPartyPath, MongoCPath, "include", "libbson-1.0"));
             string MongoCInclMongoPath = Path.GetFullPath(Path.Combine(ThirdPartyPath, MongoCPath, "include", "libmongoc-1.0"));

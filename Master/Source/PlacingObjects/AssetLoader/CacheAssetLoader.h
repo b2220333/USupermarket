@@ -8,12 +8,14 @@
 #include "GameFramework/Actor.h"
 #include "CacheAssetLoader.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FItemSpawned, AActor*, SpawnedActor);
+
 UCLASS()
 class PLACINGOBJECTS_API ACacheAssetLoader : public AActor
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	// Sets default values for this actor's properties
 	ACacheAssetLoader();
 
@@ -21,28 +23,35 @@ public:
 		ATriggerBox* SpawnPoint;
 
 	UPROPERTY()
-	TArray<FString> AssetsInChache;
+		TArray<FString> AssetsInChache;
 
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-public:	
+public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
 	void SpawnAsset(const FString Path, const FVector Location, const FRotator Rotation);
 	void SpawnAsset(const FString Path);
-	void SelectAsset(FString AssetName);
+
+	UPROPERTY()
+		FItemSpawned OnItemSpawend;
 
 	ARRefillObject* GetSpawnedItem() {
 		return CurrentObject;
 	}
 
-private: 
+private:
+
+
 	FString CachePath;
 
 	ARRefillObject* CurrentObject;
-	
-	
+
+	void ReadAdditionalObjectParameters(ARRefillObject* RefillObj, FString PathToAsset);
+	void SetupHoleTab(ARRefillObject* RefillObj, FVector HoleTabPosition);
+
+
 };

@@ -20,6 +20,7 @@ class PLACINGOBJECTS_API UHUDWidget : public UUserWidget
 	GENERATED_BODY()
 	
 public:
+	UHUDWidget(const FObjectInitializer& PCIP);
 	virtual void NativeConstruct() override;
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 
@@ -41,6 +42,8 @@ private:
 
 	TMap<UButton*, FString> ButtonToID;
 	TArray<UListButton*> ButtonList;
+
+	UFont* ButtonFont;
 
 	//UFUNCTION()
 		//FReply OnButtonClicked(FString f);

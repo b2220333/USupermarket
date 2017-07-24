@@ -29,10 +29,10 @@ void UListButton::OnClick()
 //	this->AssetLoader = AssetLoader;
 //	this->AssetID = AssetID;
 //}
-void UListButton::SetupButton(ACacheAssetLoader * AssetLoader, FString AssetID)
+void UListButton::SetupButton(ACacheAssetLoader * _AssetLoader, FString _AssetID)
 {
-	this->AssetLoader = AssetLoader;
-	this->AssetID = AssetID;
+	this->AssetLoader = _AssetLoader;
+	this->AssetID = _AssetID;
 }
 
 
