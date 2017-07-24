@@ -1,11 +1,21 @@
 // Fill out your copyright notice in the Description page of Project Settings.
+#define TAG_KEY_SHELF "Shelf"
+#define TAG_SHELF "Refill;Shelf,True;"
+
+#define TAG_KEY_HOOK "Hook"
+#define TAG_HOOK "Refill;Hook,True;"
+
+#define TAG_KEY_ITEM "RefillObject"
+#define TAG_ITEM "Refill;RefillObject,True;"
 
 #include "PlacingObjects.h"
 #include "AssetLoader/RRefillObject.h"
+#include "TagStatics.h"
+#include "PhysicsEngine/PhysicsConstraintActor.h"
+#include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "CPlaceItem.h"
 
 
-// Sets default values for this component's properties
 UCPlaceItem::UCPlaceItem()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
@@ -20,18 +30,32 @@ UCPlaceItem::UCPlaceItem()
 	SpacingStep = 5.0f;
 }
 
-// Called when the game starts
 void UCPlaceItem::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Get all actors with specific tag
+	ListOfRefillTitemsPlacedInWorld = FTagStatics::GetActorsWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_ITEM, "True");
+	SetOfShelves = FTagStatics::GetActorSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_SHELF, "True");
+	//SetOfHooks = FTagStatics::GetActorSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_HOOK, "True");
+	SetOfHooks = FTagStatics::GetComponentSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_HOOK, "True");
+
+	UE_LOG(LogTemp, Warning, TEXT("Items found %i"), ListOfRefillTitemsPlacedInWorld.Num());
+	UE_LOG(LogTemp, Warning, TEXT("Shelves found %i"), SetOfShelves.Num());
+	UE_LOG(LogTemp, Warning, TEXT("Hooks found %i"), SetOfHooks.Num());
+	// ***********************************************
+
 	if (AssetLoader == nullptr)
 	{
-		GEngine->AddOnScreenDebugMessage(iTextID_Error, 100000.0f, FColor::Red, "UCPlaceItem::BeginPlay: Pleas assign a AssetLoader", false);
+		GEngine->AddOnScreenDebugMessage(iTextID_Error, 100000.0f, FColor::Red, "UCPlaceItem::BeginPlay: Please assign an AssetLoader actor", false);
 		GetWorld()->GetFirstPlayerController()->SetPause(true);
 		return;
 	}
-
+	else {
+		// Bind function to delegate
+		UE_LOG(LogTemp, Warning, TEXT("Bind OnNewItemSpawned"));
+		AssetLoader->OnItemSpawend.AddDynamic(this, &UCPlaceItem::OnNewItemSpawned);
+	}
 
 	Character = Cast<ACharacter>(GetOwner());
 	if (Character)
@@ -39,13 +63,7 @@ void UCPlaceItem::BeginPlay()
 
 		HUD = Cast<AMyHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
 
-		//HUD->AppendText(FString("Test")); // ID 1
-		//HUD->AppendText(FString("Test2")); // ID 2
-		//HUD->AppendText(FString("Test3")); // ID 3
-		//HUD->AppendText(FString("Test4")); // ID 4
-		//HUD->RemoveText(2); // ID 2
-		//HUD->ChangeText(1, FString("Blah")); // ID 1
-
+		// ********** Setup bindings
 		UInputComponent* PlayerInputComponent = Character->InputComponent;
 
 		PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &UCPlaceItem::OnFirePressed);
@@ -58,11 +76,9 @@ void UCPlaceItem::BeginPlay()
 
 		PlayerInputComponent->BindAxis("ChangeSpacing", this, &UCPlaceItem::ChangeSpacing);
 
-		PlayerInputComponent->BindAction("SelectNextItem", IE_Pressed, this, &UCPlaceItem::OnNewItemSelected);
-		PlayerInputComponent->BindAction("SelectPreviousItem", IE_Pressed, this, &UCPlaceItem::OnNewItemSelected);
-
 		PlayerInputComponent->BindAction("RotateItem", IE_Pressed, this, &UCPlaceItem::StepRotation);
 		PlayerInputComponent->BindAction("TogglePlacingRemovingState", IE_Pressed, this, &UCPlaceItem::TogglePlacingRemovingState);
+		// ***************************
 	}
 	else
 	{
@@ -71,21 +87,12 @@ void UCPlaceItem::BeginPlay()
 		return;
 	}
 
-	// Setup Item
-	if (ItemTemplate != nullptr)
-	{
-		ItemMaterial = GetStaticMesh(ItemTemplate)->GetMaterial(0);
-	}
-
-	ItemTag = FName("RefillObject");
-
 	// *** UI Text
 	GEngine->AddOnScreenDebugMessage(iTextID_SpacingStep, 100000.0f, FColor::Yellow, "Spacing: x" + FString::SanitizeFloat(SpacingStep), false);
 	GEngine->AddOnScreenDebugMessage(iTextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(SpacingX), false);
 	GEngine->AddOnScreenDebugMessage(iTextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(SpacingY), false);
 }
 
-// Called every frame
 void UCPlaceItem::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -99,10 +106,12 @@ void UCPlaceItem::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 
 	// Check for any movement or changes in the players input
 	CheckPlayerInput();
+
 }
 
-std::pair<FHitResult, TArray<FName>> UCPlaceItem::StartRaytrace()
+FHitResult UCPlaceItem::StartRaytrace()
 {
+	// Camera location and rotation
 	FVector CamLoc;
 	FRotator CamRot;
 
@@ -118,29 +127,16 @@ std::pair<FHitResult, TArray<FName>> UCPlaceItem::StartRaytrace()
 
 	if (CurrentInteractionState == InteractionState::PLACING)
 	{
-		TraceParams.TraceTag = FName("Shelf"); //  The ray doesn't get blocked by other objects and we're able to place objects behind each other
+		TraceParams.AddIgnoredActors(ListOfRefillTitemsPlacedInWorld); // Ignore all placed RefillITems in the world so we can place new items behind them
 	}
 
-	TraceParams.AddIgnoredActor(GetOwner());
-	TraceParams.AddIgnoredActor(ItemTemplate);
-	TraceParams.AddIgnoredActors(PhantomItems);
+	TraceParams.AddIgnoredActor(GetOwner()); // Ignore the player
+	TraceParams.AddIgnoredActor(ItemTemplate); // Ignore the item in our hand
+	TraceParams.AddIgnoredActors(PhantomItems); // Ignore al phantom items we are currently showing
 
 	GetWorld()->LineTraceSingleByChannel(Hit, StartTrace, EndTrace, ECollisionChannel::ECC_WorldStatic, TraceParams);
 
-	if (bIsDebugMode)
-	{
-		// DrawDebugLine(GetWorld(), StartTrace, EndTrace, FColor::Green, true, 3, 0, 1.f);
-	}
-
-
-	if (Hit.GetActor() != nullptr)
-	{
-		return std::make_pair(Hit, Hit.GetActor()->Tags);
-	}
-	else
-	{
-		return std::make_pair(Hit, TArray<FName>());
-	}
+	return Hit;
 }
 
 void UCPlaceItem::ChangeSpacing(const float Val)
@@ -182,22 +178,28 @@ void UCPlaceItem::PlaceItems()
 
 		for (auto &elem : ItemsToPlace)
 		{
-
 			UStaticMeshComponent* Mesh = GetStaticMesh(elem);
 
+			// Setup parameters for the object to place
 			if (Mesh != nullptr)
 			{
+				Mesh->SetMobility(EComponentMobility::Movable);
 				Mesh->SetCollisionProfileName("OverlapOnlyPawn");
-				Mesh->bGenerateOverlapEvents = true;
 				Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 				Mesh->SetSimulatePhysics(true);
 				Mesh->SetCollisionObjectType(ECollisionChannel::ECC_PhysicsBody);
+				Mesh->bGenerateOverlapEvents = true;
+			}
+			// ****************************************
+
+			ListOfRefillTitemsPlacedInWorld.Add(elem);
+
+			if (FTagStatics::HasKeyValuePair(elem, "Refill", "Hookable", "True")) {
+				CreateConstraintsForHookableItems(elem);
 			}
 
 			PhantomItems.RemoveSwap(elem);
-			ObjectPool.RemoveSwap(elem);
-
-
+			ObjectPool.RemoveSwap(elem); // Also remove item from the object pool since it isn't available anymore for phantom items
 		}
 	}
 }
@@ -206,6 +208,7 @@ void UCPlaceItem::RemoveItems()
 {
 	for (auto & elem : SelectedItems)
 	{
+		ListOfRefillTitemsPlacedInWorld.Remove(elem);
 		elem->Destroy();
 	}
 
@@ -228,8 +231,8 @@ void UCPlaceItem::CheckPlayerInput()
 {
 	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
 
-	// Check if the player has changed the position
-	bPlayerHasMoved = PlayerController->IsInputKeyDown(EKeys::AnyKey) || // Any key doesn't seem to work
+	// Check if the player has changed the position 
+	bPlayerHasMoved = PlayerController->IsInputKeyDown(EKeys::AnyKey) || // TODO Any key doesn't seem to work
 		PlayerController->IsInputKeyDown(EKeys::MouseX) ||
 		PlayerController->IsInputKeyDown(EKeys::MouseY) ||
 		PlayerController->IsInputKeyDown(EKeys::MouseWheelAxis) ||
@@ -242,18 +245,25 @@ void UCPlaceItem::CheckPlayerInput()
 		PlayerController->IsInputKeyDown(EKeys::R) || // Rotated item
 		PlayerController->IsInputKeyDown(EKeys::SpaceBar); // Spawned new item
 
-
-
-	if (bPlayerHasMoved)
+	if (bPlayerHasMoved || true) // TODO fix bPlayerHasMoved or leave it out completely
 	{
 		RaytraceResults = StartRaytrace();
 
 
-		if (CurrentInteractionState == InteractionState::PLACING && RaytraceResults.second.Contains("Shelf"))
+		if (CurrentInteractionState == InteractionState::PLACING && RaytraceResults.GetActor() != nullptr)
 		{
-			// We hit a shelf
-			DisplayPhantomItem(RaytraceResults.first);
-			return;
+			if (SetOfShelves.Contains(RaytraceResults.GetActor()))
+			{
+				// We hit a shelf and we are in placing mode
+				DisplayPhantomItem(RaytraceResults);
+				return;
+			}
+
+			UActorComponent* Component = Cast<UActorComponent>(RaytraceResults.GetComponent());
+			if (Component != nullptr && SetOfHooks.Contains(Component)) {
+				DisplayPhantomHookItem(RaytraceResults);
+			}
+
 		}
 		else
 		{
@@ -267,11 +277,12 @@ void UCPlaceItem::CheckPlayerInput()
 			PhantomItems.Empty();
 		}
 
-		// We hit a refill object
-		if (CurrentInteractionState == InteractionState::SELECTING && RaytraceResults.second.Contains(ItemTag))
+		// We hit a refill object while in selection mode
+		if (CurrentInteractionState == InteractionState::SELECTING && RaytraceResults.GetActor() != nullptr && ListOfRefillTitemsPlacedInWorld.Contains(RaytraceResults.GetActor()))
 		{
+			// Check if it we focused on a new item
 			bool bIsNewSelection =
-				FocusedItem != RaytraceResults.first.GetActor() ||
+				FocusedItem != RaytraceResults.GetActor() ||
 				GetWorld()->GetFirstPlayerController()->WasInputKeyJustPressed(EKeys::LeftShift) ||
 				GetWorld()->GetFirstPlayerController()->WasInputKeyJustReleased(EKeys::LeftShift) ||
 				GetWorld()->GetFirstPlayerController()->WasInputKeyJustPressed(EKeys::LeftControl) ||
@@ -285,10 +296,8 @@ void UCPlaceItem::CheckPlayerInput()
 					SelectedItems.Remove(FocusedItem); // Remove the old item from the list of selected items
 				}
 
-				FocusedItem = RaytraceResults.first.GetActor(); // Assign new item
-				GetStaticMesh(FocusedItem)->SetRenderCustomDepth(true); // Reactivate outline effect
-
-
+				FocusedItem = RaytraceResults.GetActor(); // RaytraceResults.first.GetActor(); // Assign new item as focused item
+				GetStaticMesh(FocusedItem)->SetRenderCustomDepth(true); // Reactivate outline effect for new item
 
 				bool bLeftShiftIsHeldDown = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftShift);
 				bool bLeftControlIsHeldDown = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftControl);
@@ -317,12 +326,13 @@ void UCPlaceItem::CheckPlayerInput()
 					RemoveItems();
 				}
 			}
-
 		}
 		else
 		{
+			// We are not in selecting mode anymore
 			if (FocusedItem != nullptr)
 			{
+				// Disable last focused item
 				GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false);
 				SelectedItems.Remove(FocusedItem);
 				FocusedItem = nullptr;
@@ -336,27 +346,26 @@ void UCPlaceItem::CheckPlayerInput()
 void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 {
 	if (Character == nullptr) return;
-
-	ItemTemplate = AssetLoader->GetSpawnedItem();
-
 	if (ItemTemplate == nullptr) return;
 
 	ABlockingVolume* BlockingVol = Cast<ABlockingVolume>(Hit.GetActor());
-	ItemTemplate->K2_SetActorRotation(Rotation, true);// Set  rotation before checking for extends
+	ItemTemplate->K2_SetActorRotation(Rotation, true);// Set rotation before checking for extends
 
 	// Get position and bounds of the item
 	FVector ItemOrigin;
 	FVector ItemBoundExtend;
 	ItemTemplate->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
 
-	ItemTemplate->SetActorRotation(BlockingVol->GetActorRotation() + Rotation); // align rotation to blocking volume + the item rotation
+	FVector DeltaOfPivotToCenter = ItemOrigin - ItemTemplate->GetActorLocation(); // Get the difference between pivot and center of blocking volume
+
+	ItemTemplate->SetActorRotation(BlockingVol->GetActorRotation() + Rotation); // Set item's rotation to blocking volume rotation + the item rotation
 
 	FVector BlockingVolumeOrigin;
-	FVector NotUsed;
+	FVector NotUsed; // We don't need the extends of the blocking volume's AABB
 
 	BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, NotUsed);
 
-	// Use the extends of the brush
+	// Use the extends of the brush. This is the extend of Object Oriented Bounding Box
 	FVector BlockingVolumeExtend = BlockingVol->Brush->Bounds.BoxExtent;
 
 	// Get direction of x, y and z axis
@@ -366,7 +375,9 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 
 	// Calculating new position
 	FVector Position = Hit.ImpactPoint;
-	FVector NewPosition = FVector(Position.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z /*- BlockingVolumeExtend.Z*/); // TODO check different items and the extend z value which is commented out right now
+
+	// BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z -> The lower edge of the item is at the height of the pivot point of the blocking volume
+	FVector NewPosition = FVector(Position.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z) - DeltaOfPivotToCenter;
 
 	if (LocationToPlaceItem == NewPosition) return; // We didn't actually move the item.
 
@@ -393,10 +404,10 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 	{
 		// Placing a row
 
-		// Calculate how many items we can place in a row
+		// Calculate how many items we can place in a row, based on the blocking volume and item extends
 		AmountOfItemsPossibleX = FMath::FloorToInt((2 * BlockingVolumeExtend.X) / (2 * ItemBoundExtend.X * SpacingX));
 
-		StartVector = GetRowStartPoint(BlockingVol, ItemTemplate, NewPosition);
+		StartVector = GetRowStartPoint(BlockingVol, ItemTemplate, NewPosition); // This doesn't need DeltaOfPivotToCenter
 
 		if (bIsDebugMode)
 		{
@@ -416,8 +427,7 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 		// The lower left corner of the blocking volume
 		FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis - BlockingVolumeExtend.Z * ZAxis;
 
-		//StartVector = BasePointPlane + ItemBoundExtend.X * XAxis + ItemBoundExtend.Y * YAxis + ItemBoundExtend.Z * ZAxis; // TODO check different items and the extend z value which is commented out right now
-		StartVector = BasePointPlane + ItemBoundExtend.X * XAxis + ItemBoundExtend.Y * YAxis + (ItemBoundExtend.Z + BlockingVolumeExtend.Z) * ZAxis;
+		StartVector = BasePointPlane + ItemBoundExtend.X * XAxis + ItemBoundExtend.Y * YAxis + (ItemBoundExtend.Z + BlockingVolumeExtend.Z) * ZAxis - DeltaOfPivotToCenter;
 
 		if (bIsDebugMode)
 		{
@@ -431,14 +441,14 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 		StartVector = NewPosition;
 	}
 
-	// Now place the items
+	// Now show the items
 	for (size_t s = 0; s < Stacking; s++)
 	{
 		for (size_t i = 0; i < AmountOfItemsPossibleX; i++)
 		{
 			for (size_t j = 0; j < AmountOfItemsPossibleY; j++)
 			{
-				// Create clone of the item to display
+				// Get clone of the item to display
 				AActor* Clone = GetCloneActor(ItemTemplate);
 
 				if (Clone == nullptr) return;
@@ -460,21 +470,78 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 				Clone->SetActorLocation(NewPosition);
 
 				bItemCanBePlaced = CheckCollisions(Clone);
+
 				if (bItemCanBePlaced == false) return;
 			}
 		}
 	}
 }
 
+void UCPlaceItem::DisplayPhantomHookItem(FHitResult Hit)
+{
+	if (ItemTemplate == nullptr) return;
+	if (FTagStatics::HasKeyValuePair(ItemTemplate, "Refill", "Hookable", "True") == false) return; // The item we try to place on the hook is not a hookable item
+
+	// Deactivate all former phantom items
+	for (auto &elem : PhantomItems)
+	{
+		elem->SetActorHiddenInGame(true);
+		elem->SetActorEnableCollision(false);
+	}
+	PhantomItems.Empty();
+
+	UActorComponent* HoleComponentAsActorComp = ItemTemplate->GetComponentByClass(UHoleTabComponent::StaticClass());
+	if (HoleComponentAsActorComp == nullptr) return;
+	UHoleTabComponent* HoleComponent = Cast<UHoleTabComponent>(HoleComponentAsActorComp);
+
+	// Calculate the position of the item on the hook, depending on the HoleTab's relative position
+
+
+	FVector CenterOfBox = Hit.GetComponent()->Bounds.GetBox().GetCenter();
+	float HookExtendOnX = Hit.GetComponent()->Bounds.GetBox().GetExtent().X;
+
+	ItemTemplate->K2_SetActorRotation(Rotation, true);// Set rotation before checking for extends
+
+	FVector ItemOrigin;
+	FVector ItemExtend;
+	ItemTemplate->GetActorBounds(false, ItemOrigin, ItemExtend);
+
+	int AmountOfItemsToPlace = 1;
+
+	ItemTemplate->SetActorRotation(Hit.GetComponent()->GetComponentRotation() + Rotation); // Set item's rotation to blocking volume rotation + the item rotation
+	// Calculate amount of items 
+	bool bRowBuilding = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftShift);
+
+	if (bRowBuilding) {
+		AmountOfItemsToPlace = FMath::FloorToInt((2 * HookExtendOnX) / (2 * ItemExtend.X * SpacingX));
+		// UE_LOG(LogTemp, Warning, TEXT("Amount to place %i"), AmountOfItemsToPlace);
+	}
+
+	FVector XAxis = Hit.GetComponent()->GetRightVector();
+	FVector FrontItemPosition = CenterOfBox + HookExtendOnX * XAxis - HoleComponent->RelativeLocation;
+
+	for (size_t i = 0; i < AmountOfItemsToPlace; i++)
+	{
+		FVector RelativePointOnXAxis = SpacingX * (-XAxis) * 2 * ItemExtend.X * i;
+
+		AActor* PhantomItem = GetCloneActor(ItemTemplate);
+		PhantomItems.Add(PhantomItem);
+		PhantomItem->SetActorLocation(FrontItemPosition + RelativePointOnXAxis);
+
+		bItemCanBePlaced = CheckCollisions(PhantomItem);
+		LastFocusedHook = Hit.GetComponent();
+	}
+}
+
 void UCPlaceItem::SelectRow()
 {
-	ABlockingVolume* BlockingVol = FindShelf(FocusedItem);
+	ABlockingVolume* BlockingVol = FindShelf(FocusedItem); // Get the shelf the focused item is standing on
 
 	if (BlockingVol == nullptr)
 	{
 		if (SelectedItems.Contains(FocusedItem) == false)
 		{
-			SelectedItems.Add(FocusedItem);
+			SelectedItems.Add(FocusedItem); // There is no blocking volume. Select only focused item
 		}
 
 		return; // That wasn't a blocking volume we hit
@@ -482,6 +549,7 @@ void UCPlaceItem::SelectRow()
 
 	TArray<FHitResult> Hits;
 
+	// Start point is the point of the focused item
 	FVector StartVectorTemp = GetRowStartPoint(BlockingVol, FocusedItem, FocusedItem->GetActorLocation());
 	FVector StartVector = FVector(
 		StartVectorTemp.X,
@@ -489,17 +557,19 @@ void UCPlaceItem::SelectRow()
 		BlockingVol->GetActorLocation().Z + 2 * BlockingVol->Brush->Bounds.BoxExtent.Z
 	);
 
+	// End vector is a point at the end of the row. Starting from first point 'StartVecttor' and going from there along the x axis
 	FVector EndVector = StartVector + 2 * BlockingVol->Brush->Bounds.BoxExtent.X * BlockingVol->GetActorForwardVector();
 
 	FCollisionQueryParams TraceParams;
-	TraceParams.TraceTag = FName(ItemTag); //  Only hit Refill Items
+	TraceParams.TraceTag = TAG_ITEM; //  Only hit Refill Items
 
 	GetWorld()->LineTraceMultiByChannel(Hits, StartVector, EndVector, ECollisionChannel::ECC_Pawn, TraceParams);
 
 	for (auto& elem : Hits)
 	{
 		AActor* HitActor = elem.GetActor();
-		if (HitActor != nullptr && HitActor->Tags.Contains(ItemTag))
+
+		if (HitActor != nullptr && ListOfRefillTitemsPlacedInWorld.Contains(HitActor))
 		{
 			UStaticMeshComponent* MeshComp = GetStaticMesh(HitActor);
 			if (MeshComp != nullptr)
@@ -507,11 +577,10 @@ void UCPlaceItem::SelectRow()
 				MeshComp->SetRenderCustomDepth(true);
 			}
 
-			CheckStackedNeighbour(HitActor);
-			SelectedItems.Add(HitActor);
+			CheckStackedNeighbour(HitActor); // Check if this item has any other item stacked onto it
+			SelectedItems.Add(HitActor); // Select the item
 		}
 	}
-
 
 	if (bIsDebugMode)
 	{
@@ -528,7 +597,7 @@ void UCPlaceItem::SelectAllItems()
 	{
 		if (SelectedItems.Contains(FocusedItem) == false)
 		{
-			SelectedItems.Add(FocusedItem);
+			SelectedItems.Add(FocusedItem); // Only select focused item
 		}
 
 		return; // That wasn't a blocking volume we hit
@@ -539,7 +608,7 @@ void UCPlaceItem::SelectAllItems()
 
 	for (auto & HitActor : ItemsOnShelf)
 	{
-		if (HitActor->Tags.Contains(ItemTag))
+		if (ListOfRefillTitemsPlacedInWorld.Contains(HitActor))
 		{
 			UStaticMeshComponent* MeshComp = GetStaticMesh(HitActor);
 			if (MeshComp != nullptr)
@@ -547,8 +616,8 @@ void UCPlaceItem::SelectAllItems()
 				MeshComp->SetRenderCustomDepth(true);
 			}
 
-			CheckStackedNeighbour(HitActor);
-			SelectedItems.Add(HitActor);
+			CheckStackedNeighbour(HitActor); // Check if this item has any other item stacked onto it
+			SelectedItems.Add(HitActor); // Select item
 		}
 	}
 }
@@ -562,7 +631,6 @@ void UCPlaceItem::DeselectItems()
 
 	SelectedItems.Empty();
 
-
 	// Re-enable outline for focusedItem if there is any, which means the player is still pointing at an item
 	bool bLeftShiftIsHeldDown = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftShift);
 	bool bLeftControlIsHeldDown = GetWorld()->GetFirstPlayerController()->IsInputKeyDown(EKeys::LeftControl);
@@ -574,6 +642,41 @@ void UCPlaceItem::DeselectItems()
 	}
 }
 
+void UCPlaceItem::CreateConstraintsForHookableItems(AActor* HookableItem)
+{
+	if (LastFocusedHook == nullptr) {
+		UE_LOG(LogTemp, Warning, TEXT("Trying to place an item on a hook but hook was not found"));
+	}
+	else {
+		UPhysicsConstraintComponent* ConstraintComponent = NewObject<UPhysicsConstraintComponent>(HookableItem);
+
+		if (ConstraintComponent == nullptr) {
+			UE_LOG(LogTemp, Warning, TEXT("Could not create constraint component on %s"), *HookableItem->GetName());
+			return;
+		}
+
+		UPrimitiveComponent* HoleTabComponent = Cast<UPrimitiveComponent>(HookableItem->GetComponentByClass(UHoleTabComponent::StaticClass()));
+
+		if (HoleTabComponent == nullptr) {
+			UE_LOG(LogTemp, Warning, TEXT("HoleTab Component not found on actor %s"), *HookableItem->GetName());
+			return;
+		}
+
+		UPrimitiveComponent* ItemStaticMeshRootComponent = Cast<UPrimitiveComponent>(HookableItem->GetRootComponent());
+
+		ConstraintComponent->SetWorldLocation(HoleTabComponent->GetComponentLocation());
+
+		ConstraintComponent->AttachTo(HookableItem->GetRootComponent(), NAME_None, EAttachLocation::KeepWorldPosition);
+		ConstraintComponent->SetConstrainedComponents(ItemStaticMeshRootComponent, NAME_None, LastFocusedHook, NAME_None);
+
+		ConstraintComponent->SetDisableCollision(true);
+		ConstraintComponent->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+		ConstraintComponent->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Limited, 5.0f); // Hardcoded limits
+		ConstraintComponent->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Limited, 5.0f);
+		
+		UE_LOG(LogTemp, Warning, TEXT("Added constraint"));
+	}
+}
 
 UStaticMeshComponent* UCPlaceItem::GetStaticMesh(AActor* Actor)
 {
@@ -631,10 +734,9 @@ void UCPlaceItem::TogglePlacingRemovingState()
 
 AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 {
-
-	for (auto& object : ObjectPool)
+	for (auto& object : ObjectPool) // First check the object pool if there is any unused object
 	{
-		if (object->bHidden)
+		if (object->bHidden) // Take the first object that is hidden
 		{
 			object->SetActorHiddenInGame(false);
 			object->SetActorEnableCollision(true);
@@ -647,17 +749,13 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 				MeshComponent->SetStaticMesh(MeshOfActorToClone);
 			}
 
-			if (MeshComponent->GetMaterial(0) != RedMaterial)
-			{ // We don't want to apply the red material
-				ItemMaterial = MeshComponent->GetMaterial(0);
-			}
+			MeshComponent->SetMaterial(0, ItemMaterial);
 
-			MeshComponent->SetCollisionProfileName("OverlapOnlyPawn");
+			MeshComponent->SetCollisionProfileName("OverlapAll");
+			MeshComponent->SetCollisionObjectType(ECollisionChannel::ECC_Pawn);
 			MeshComponent->SetSimulatePhysics(false);
 			MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-			MeshComponent->SetCollisionObjectType(ECollisionChannel::ECC_PhysicsBody);
-
-			// UE_LOG(LogTemp, Warning, TEXT("Reused object"));
+			MeshComponent->bGenerateOverlapEvents = true;
 
 			object->K2_SetActorRotation(ItemTemplate->GetActorRotation(), false);
 
@@ -665,7 +763,7 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 		}
 	}
 
-	// If we came here, we don't have an unused object. We create a new one
+	// If we came here, we don't have an unused objects in the object pool. We create a new one
 	FActorSpawnParameters Parameters;
 	Parameters.Template = ActorToClone;
 	AActor* Clone = GetWorld()->SpawnActor<ARRefillObject>(ARRefillObject::StaticClass(), Parameters);
@@ -673,42 +771,42 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 	UStaticMeshComponent* MeshComponent = GetStaticMesh(Clone);
 
 	ItemMaterial = MeshComponent->GetMaterial(0);
-
-	MeshComponent->SetCollisionProfileName("NoCollision");
-
-	//MeshComponent->SetCollisionProfileName("OverlapOnlyPawn");	
-	//MeshComponent->bGenerateOverlapEvents = true;
-	//MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	//MeshComponent->SetSimulatePhysics(false);
-	//MeshComponent->SetCollisionObjectType(ECollisionChannel::ECC_PhysicsBody);
+	MeshComponent->SetCollisionProfileName("OverlapAll"); // A phantom item shouldn't collide with anything but overlap
+	MeshComponent->bGenerateOverlapEvents = true;
 
 	ObjectPool.Add(Clone);
 
-	if (Clone->Tags.Contains(ItemTag) == false)
+	if (Clone->Tags.Contains(TAG_ITEM) == false)
 	{
-		Clone->Tags.Add(ItemTag);
+		Clone->Tags.Add(TAG_ITEM); // Set the item tag 
 	}
 
 	return Clone;
+
 }
 
-
-bool UCPlaceItem::CheckCollisions(AActor * Actor)
+bool UCPlaceItem::CheckCollisions(AActor * Actor, UActorComponent* IgnoredComponent)
 {
+	UStaticMeshComponent* ActorMesh = GetStaticMesh(Actor);
 
-	bool bIsCollisionbNoColiision;
+	bool bActorPlacable = true;
+	GetStaticMesh(Actor)->bGenerateOverlapEvents = true;
 
-	// *** Check for collisions
-	FHitResult OutHitRes;
-	Actor->AddActorWorldOffset(FVector(0.f, 0.f, 0.01f), true, &OutHitRes);
+	TArray<UPrimitiveComponent*> HitComponents;
+	Actor->GetOverlappingComponents(HitComponents);
 
-	if (OutHitRes.GetActor() != nullptr && OutHitRes.GetActor()->Tags.Contains("Shelf") == false
-		&& PhantomItems.Contains(OutHitRes.GetActor()) == false)
+	for (auto& elem : HitComponents) {
+		if (SetOfHooks.Contains(elem) == false && SetOfShelves.Contains(elem->GetOwner()) == false && PhantomItems.Contains(elem->GetOwner()) == false) {
+			// It's not a shelf or hook and not another phantom item
+			UE_LOG(LogTemp, Warning, TEXT("Overlapping with %s of actor %s"), *elem->GetName(), *elem->GetOwner()->GetName());
+			bActorPlacable = false;
+			break;
+		}
+	}
+
+	if (bActorPlacable == false)
 	{
-
-		// There is a collision with another item
-		UE_LOG(LogTemp, Warning, TEXT("Colliding with %s"), *OutHitRes.GetActor()->GetName());
-
+		// Apply the red material to every phantom object
 		if (RedMaterial != nullptr)
 		{
 			for (auto &elem : PhantomItems)
@@ -722,13 +820,15 @@ bool UCPlaceItem::CheckCollisions(AActor * Actor)
 				}
 			}
 		}
-
-		Actor->AddActorWorldOffset(FVector(0.f, 0.f, -0.01f), true, &OutHitRes);
-
-		bIsCollisionbNoColiision = false;
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("No colision material to apply"));
+		}
+		// *********************************************
 	}
 	else
 	{
+		// There was no collision for this item. 
 		if (ItemMaterial != nullptr)
 		{
 			for (auto &elem : PhantomItems)
@@ -738,25 +838,28 @@ bool UCPlaceItem::CheckCollisions(AActor * Actor)
 
 				if (Mesh != nullptr)
 				{
-					Mesh->SetMaterial(0, ItemMaterial);
+					Mesh->SetMaterial(0, ItemMaterial); // Set the default material for this item
 				}
-
 			}
 		}
-
-		bIsCollisionbNoColiision= true;
 	}
 
-	return bIsCollisionbNoColiision;
+	return bActorPlacable;
 }
 
-void UCPlaceItem::OnNewItemSelected()
+void UCPlaceItem::OnNewItemSpawned(AActor* SpawnedActor)
 {
-	// Draw Name of selected item to HUD
-	/*if (ItemTemplate != nullptr)
-	{*/
-	HUD->ShowRefillItem(FPaths::GameContentDir().Append("Cache/test.png"), FString("Test"));
-	//}
+	if (SpawnedActor != nullptr)
+	{
+		ItemMaterial = GetStaticMesh(SpawnedActor)->GetMaterial(0);
+	}
+
+	ItemTemplate = SpawnedActor; // Get the selected item from the asset loader
+
+	if (ItemTemplate != nullptr)
+	{
+		GetStaticMesh(ItemTemplate)->SetMaterial(0, ItemMaterial);
+	}
 }
 
 FVector UCPlaceItem::GetRowStartPoint(ABlockingVolume* BlockingVolume, AActor* ItemToStartFrom, FVector ImpactPoint)
@@ -799,7 +902,7 @@ void UCPlaceItem::CheckStackedNeighbour(AActor * FromActor)
 	for (const auto& elem : StackHits)
 	{
 		AActor* StackedActor = elem.GetActor();
-		if (StackedActor != nullptr && StackedActor->Tags.Contains(ItemTag))
+		if (StackedActor != nullptr && ListOfRefillTitemsPlacedInWorld.Contains(StackedActor)/*StackedActor->Tags.Contains(ItemTag)*/)
 		{
 			UStaticMeshComponent* MeshCompStackItem = GetStaticMesh(StackedActor);
 			if (MeshCompStackItem != nullptr)
@@ -810,7 +913,7 @@ void UCPlaceItem::CheckStackedNeighbour(AActor * FromActor)
 			if (SelectedItems.Contains(StackedActor) == false)
 			{
 				SelectedItems.Add(StackedActor);
-				CheckStackedNeighbour(StackedActor);
+				CheckStackedNeighbour(StackedActor); // Call recursivly
 			}
 		}
 	}
@@ -822,11 +925,11 @@ ABlockingVolume * UCPlaceItem::FindShelf(AActor * FromActor)
 
 	TArray<FHitResult> BlockingVolumeHits;
 	FCollisionQueryParams TraceParams;
-	TraceParams.TraceTag = FName("Shelf");
+	TraceParams.TraceTag = FName(TAG_SHELF);
 	TraceParams.AddIgnoredActor(FocusedItem);
 
 	FVector StartVector = FocusedItem->GetActorLocation();
-	FVector EndVector = StartVector - FocusedItem->GetActorUpVector() * 100.0f; // Very long vektor
+	FVector EndVector = StartVector - FocusedItem->GetActorUpVector() * 100.0f; // Quite long vector
 
 	GetWorld()->LineTraceMultiByChannel(BlockingVolumeHits, StartVector, EndVector, ECollisionChannel::ECC_Camera, TraceParams);
 
@@ -834,7 +937,7 @@ ABlockingVolume * UCPlaceItem::FindShelf(AActor * FromActor)
 	{
 		AActor* HitActor = elem.GetActor();
 
-		if (HitActor != nullptr && HitActor->Tags.Contains("Shelf"))
+		if (HitActor != nullptr && SetOfShelves.Contains(HitActor))
 		{
 			BlockingVol = Cast<ABlockingVolume>(HitActor);
 			break;

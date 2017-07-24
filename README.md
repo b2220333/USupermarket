@@ -10,7 +10,7 @@
 - "R = Rotate item"
 - "F" = Toggle Placing/Selecting Mode
 - "+", "-" = Increase/Decrease stack height
-- "TAB" = Open list of spawnable items. Click on an item to spawn it. TAB again to close the list
+- "Space = Spawn item" // Right now only if there is a Mug.uasset in the Chace folder
 
 ## Setting up Shelves:
 - Add a BlockingVolume to the scene
@@ -30,4 +30,5 @@
 		- Vehicle: Block
 		- Destructible: Block
 - Check 'Generate Overlap Events'
+- The shelf meshes should allways be WorldStatic and 'BlockAll'
 

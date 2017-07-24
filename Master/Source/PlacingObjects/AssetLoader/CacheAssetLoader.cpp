@@ -3,6 +3,10 @@
 #include "PlacingObjects.h"
 #include "Runtime/Core/Public/HAL/FileManager.h"
 #include "FileManagerGeneric.h"
+#include "Runtime/JsonUtilities/Public/JsonUtilities.h"
+#include "Runtime/JsonUtilities/Public/JsonObjectConverter.h"
+#include "Components/HoleTabComponent.h"
+#include "TagStatics.h"
 #include "CacheAssetLoader.h"
 
 
@@ -41,6 +45,8 @@ void ACacheAssetLoader::Tick(float DeltaTime)
 
 void ACacheAssetLoader::SpawnAsset(const FString Path, const FVector Location, const FRotator Rotation)
 {
+
+
 	if (Path.IsEmpty())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("No path for spawning RefillObject."));
@@ -69,10 +75,16 @@ void ACacheAssetLoader::SpawnAsset(const FString Path, const FVector Location, c
 	FString PathToAsset = FString(*CachePath);
 	PathToAsset.Append(*Path);
 
+	//	UE_LOG(LogTemp, Warning, TEXT("Spawning from path %s"), *PathToAsset);
+
 	RefillObj->LoadRefillObject(PathToAsset);
 
 	CurrentObject = RefillObj;
 	CurrentObject->SetMobility(EComponentMobility::Movable);
+
+
+	ReadAdditionalObjectParameters(RefillObj, PathToAsset);
+	OnItemSpawend.Broadcast(RefillObj); // Tell everyone we spawned a new item
 }
 
 void ACacheAssetLoader::SpawnAsset(const FString Path)
@@ -87,7 +99,58 @@ void ACacheAssetLoader::SpawnAsset(const FString Path)
 	}
 }
 
-void ACacheAssetLoader::SelectAsset(FString AssetName)
+void ACacheAssetLoader::ReadAdditionalObjectParameters(ARRefillObject * RefillObj, FString PathToAsset)
 {
+
+	FString JsonPath = PathToAsset.Replace(*FString(".uasset"), *FString(".json"));
+
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (PlatformFile.FileExists(*JsonPath)) {
+
+		FString JsonObjectString;
+		FFileHelper::LoadFileToString(JsonObjectString, *JsonPath);
+
+		TSharedPtr<FJsonObject> JsonObject;
+		TSharedRef< TJsonReader<> > ObjectReader = TJsonReaderFactory<>::Create(JsonObjectString);
+
+		if (FJsonSerializer::Deserialize(ObjectReader, JsonObject))
+		{
+			for (auto& curItem : JsonObject->Values)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Loading json object %s"), *curItem.Key);
+
+				if (curItem.Key.Equals("Tag")) {
+					RefillObj->Tags.Add(FName(*curItem.Value->AsString()));
+				}
+
+				// Check, if this item can be placed on a hook
+				if (curItem.Key.Equals("HookPosition")) {
+					auto& HookPositionJSONObj = *curItem.Value->AsObject();
+					float HookX = HookPositionJSONObj.GetNumberField("X");
+					float HookY = HookPositionJSONObj.GetNumberField("Y");
+					float HookZ = HookPositionJSONObj.GetNumberField("Z");
+
+					FVector HookPositionVector(HookX, HookY, HookZ);
+					SetupHoleTab(RefillObj, HookPositionVector);
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Deserialization failed"));
+		}
+	}
+	else {
+		UE_LOG(LogTemp, Warning, TEXT("File not found %s"), *JsonPath);
+	}
+
+}
+
+void ACacheAssetLoader::SetupHoleTab(ARRefillObject * RefillObj, FVector HoleTabPosition)
+{
+	UE_LOG(LogTemp, Warning, TEXT("Hook position %s"), *HoleTabPosition.ToCompactString());
+	UHoleTabComponent* HoleTab = NewObject<UHoleTabComponent>(RefillObj);
+	HoleTab->AttachToComponent(RefillObj->GetStaticMeshComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	HoleTab->SetRelativeLocation(HoleTabPosition);
 }
 

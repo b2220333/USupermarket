@@ -3,14 +3,15 @@
 #include "PlacingObjects.h"
 #include "HUDWidget.h"
 
+UHUDWidget::UHUDWidget(const class FObjectInitializer& PCIP) : Super(PCIP)
+{
+	ConstructorHelpers::FObjectFinder<UFont> FontObject(TEXT("/Engine/EngineFonts/DroidSansMono"));
+	ButtonFont = FontObject.Object;
+}
+
 void UHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
-
-
-
-
 
 	// UScrollBox *panel = NewObject<UScrollBox>(this, UScrollBox::StaticClass());
 
@@ -82,7 +83,9 @@ TSharedRef<SWidget> UHUDWidget::RebuildWidget()
 
 		if (ScrollboxSlot)
 		{
-			ScrollboxSlot->SetAnchors(FAnchors(0.9f, 0, 1, 1)); // 0.9 means it always takes 10% of the screen
+			// ScrollboxSlot->SetAnchors(FAnchors(0.9f, 0, 1, 1)); // 0.9 means it always takes 10% of the screen
+			ScrollboxSlot->SetAnchors(FAnchors(0.75f, 0, 1, 1)); // 0.9 means it always takes 10% of the screen
+
 			ScrollboxSlot->SetOffsets(FMargin(0, 0)); // Distance from top and bottom
 		}
 
@@ -112,18 +115,31 @@ TSharedRef<SWidget> UHUDWidget::RebuildWidget()
 		//}
 
 
+		if (ButtonFont == nullptr) {
+			UE_LOG(LogTemp, Warning, TEXT("No Font"));
+			return Widget;
+		}
+
 		for (auto& elem : AssetLoader->AssetsInChache)
 		{
 			UListButton* Button = NewObject<UListButton>(this, UListButton::StaticClass());
 			Button->SetupButton(AssetLoader, elem);
 
-				Scrollbox->AddChild(Button);
+			Scrollbox->AddChild(Button);
 
-				UTextBlock* ButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ButtonText"));
-				Button->AddChild(ButtonText);
+			UTextBlock* ButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ButtonText"));
+			Button->AddChild(ButtonText);
 
-				elem.RemoveFromEnd(FString(".uasset"));
-				ButtonText->SetText(FText::FromString(elem)); // TODO Is it path or name?
+			FString ButtonTextString = elem;
+	
+			ButtonTextString.RemoveFromStart("SM_");
+			ButtonTextString.RemoveFromEnd(FString(".uasset"));
+			ButtonText->SetText(FText::FromString(ButtonTextString));
+
+			FSlateFontInfo FontInfo = FSlateFontInfo(ButtonFont, 18.0f);
+			ButtonText->SetFont(FontInfo);
+
+
 		}
 
 
