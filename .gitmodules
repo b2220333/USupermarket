@@ -1,0 +1,3 @@
+[submodule "Master/Plugins/UTags"]
+	path = Master/Plugins/UTags
+	url = https://github.com/Syrious/UTags.git
