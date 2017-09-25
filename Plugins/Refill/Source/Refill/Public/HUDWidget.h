@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Shows a list of available and placeable items in the player's HUD
 
 #pragma once
 
@@ -21,30 +21,17 @@ public:
 	UHUDWidget(const FObjectInitializer& PCIP);
 	virtual void NativeConstruct() override;
 	virtual TSharedRef<SWidget> RebuildWidget() override;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Refill")
-		FString MyNewWidgetName;	
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Refill")
-		TMap<FString, UTexture2D*> ItemMap;
-
+	
+	// Gets called when this widged gets enabled
 	UFUNCTION(BlueprintCallable, Category = "Refill")
 		void OnUIEnabled();
 
+	// Gets called when this widged gets disabled
 	UFUNCTION(BlueprintCallable, Category = "Refill")
 		void OnUIDisabled();
 
 private:
-	//ARAssetLoader* AssetLoader; // The AssetLoader actor
-	ACacheAssetLoader* AssetLoader;
+	ACacheAssetLoader* AssetLoader; // The AssetLoader instance
 
-	TMap<UButton*, FString> ButtonToID;
-	TArray<UListButton*> ButtonList;
-
-	UFont* ButtonFont;
-
-
-	//UFUNCTION()
-		//FReply OnButtonClicked(FString f);
-
+	UFont* ButtonFont; // The font used for the button texts 
 };

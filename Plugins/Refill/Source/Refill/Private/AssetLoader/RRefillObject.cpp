@@ -7,7 +7,7 @@
 ARRefillObject::ARRefillObject()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 }
 
 ARRefillObject::ARRefillObject(const class FObjectInitializer& PCIP)
@@ -29,8 +29,7 @@ void ARRefillObject::Tick(float DeltaTime)
 
 // Loads the Object (which has to be a UStaticMesh) from the given asset path
 void ARRefillObject::LoadRefillObject(const FString AssetPath) {
-	if (AssetPath.IsEmpty())
-		return;
+	if (AssetPath.IsEmpty()) return;
 
 	FString Path = AssetPath;
 	FString TrimmedPath = "";
@@ -43,11 +42,9 @@ void ARRefillObject::LoadRefillObject(const FString AssetPath) {
 	FileName.Split(TEXT("."), &FileName, &UnusedDummy, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
 
 	FString MeshPath = TEXT("StaticMesh'/Game/") + RelativePath + TEXT("/") + FileName + TEXT(".") + FileName + TEXT("'");
-	MeshPath.Replace(TEXT("//"), TEXT("/")); // Acoid double slashes
+	MeshPath.Replace(TEXT("//"), TEXT("/")); // replace double slashes
 
 	UE_LOG(LogTemp, Log, TEXT("%s: Used Mesh: %s"), *FString(__FUNCTION__), *MeshPath);
-
-	// return; // TODO Delete to prevent crash
 
 	UStaticMesh* LoadedMesh = Cast<UStaticMesh>(StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *MeshPath));
 	if (!LoadedMesh)

@@ -2,10 +2,8 @@
 
 
 #include "Refill.h"
-//#include "Runtime/PerfCounters/Public/PerfCountersModule.h"
-//#include "Runtime/Json/Public/Json.h"
 #include "Runtime/JsonUtilities/Public/JsonUtilities.h"
-//#include "Runtime/Core/Public/Templates/SharedPointer.h"
+#include "TagStatics.h"
 
 #include "Runtime/JsonUtilities/Public/JsonObjectConverter.h"
 #include "SavegameManager.h"
@@ -16,27 +14,26 @@
 ASavegameManager::ASavegameManager()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
-
+	PrimaryActorTick.bCanEverTick = false;
+	SavegameFileName = FString("UE4TestJSON.json");
+	SaveDirectory = FPaths::GameContentDir().Append("Cache/");
 }
 
 // Called when the game starts or when spawned
 void ASavegameManager::BeginPlay()
 {
 	Super::BeginPlay();
+	PlayerCharacter = Cast<ARMyCharacter>(GetWorld()->GetFirstPlayerController()->GetCharacter());
 
-	if (PlayerCharacter != nullptr)
-	{
-		UInputComponent* PlayerInputComponent = PlayerCharacter->InputComponent;
+	check(PlayerCharacter); // Assert the existence of the PlayerCharacter
 
-		PlayerInputComponent->BindAction("SaveMap", IE_Pressed, this, &ASavegameManager::SaveGame);
-		PlayerInputComponent->BindAction("LoadMap", IE_Pressed, this, &ASavegameManager::LoadGame);
-	}
+	UInputComponent* PlayerInputComponent = PlayerCharacter->InputComponent;
 
+	// Binding keys for loading and saving
+	PlayerInputComponent->BindAction("SaveMap", IE_Pressed, this, &ASavegameManager::SaveGame);
+	PlayerInputComponent->BindAction("LoadMap", IE_Pressed, this, &ASavegameManager::LoadGame);
 
-
-
-	// Look for Place Component
+	// Look for PlaceComponent
 	TArray<UActorComponent*> Components;
 	PlayerCharacter->GetComponents(Components);
 
@@ -50,6 +47,14 @@ void ASavegameManager::BeginPlay()
 		}
 	}
 
+	// Find ItemManager
+	for (TActorIterator<AItemManager>Itr(GetWorld()); Itr; ++Itr)
+	{
+		ItemManager = *Itr;
+		break;
+	}
+
+	check(ItemManager); // Assert ItemManager
 }
 
 // Called every frame
@@ -62,13 +67,15 @@ void ASavegameManager::Tick(float DeltaTime)
 
 void ASavegameManager::SaveGame()
 {
-	//TArray<AActor*> ItemList = PlaceComponent->GetListOfItems();
-	// TArray<AActor*> ItemList = PlaceComponent->ListOfRefillTitemsPlacedInWorld;
+	if (ItemManager == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("%s %s: Saving file failed. No ItemManager instance was found."), *FString(__FUNCTION__), *FString::FromInt(__LINE__));
+		return;
+	}
 
 	// Create a writer and hold it in this FString
 	TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
 
-	for (auto & elem : PlaceComponent->ListOfRefillTitemsPlacedInWorld)
+	for (auto & elem : ItemManager->ListOfRefillTitemsPlacedInWorld)
 	{
 		// Create a new JSon opbject for that item
 		TSharedPtr<FJsonObject> JsonItem = MakeShareable(new FJsonObject);
@@ -113,6 +120,17 @@ void ASavegameManager::SaveGame()
 		JsonItem->SetObjectField("Rotation", JsonItemRotation);
 		// **************************************
 
+		if (FTagStatics::HasKeyValuePair(elem, "Refill", "Hookable", "True")) { // TODO hardcoded tag
+			ARRefillObject* CastedObject = Cast<ARRefillObject>(elem);
+			if (CastedObject != nullptr) {
+				UActorComponent* Hook = ItemManager->FindHookOfItem(CastedObject);
+				if (Hook != nullptr) {
+					FString HookName = Hook->GetName();
+					JsonItem->SetStringField("HookFName", *HookName);
+				}
+			}
+		}
+
 		//  Something else(scaling etc) - Use the code above as template
 		// ...
 		// ...
@@ -122,23 +140,19 @@ void ASavegameManager::SaveGame()
 		AStaticMeshActor* StaticMeshActor = Cast <AStaticMeshActor>(elem);
 		if (StaticMeshActor != nullptr)
 		{
-			FString AssetPath = StaticMeshActor->GetStaticMeshComponent()->GetStaticMesh()->GetFullName();
-			AssetPath.RemoveFromStart("StaticMesh ");
-			JsonItem->SetStringField("AssetPath", AssetPath); // TODO Asset Path should be relative to the game folder
+			// Save file name of mesh
+			FString MeshName = StaticMeshActor->GetStaticMeshComponent()->GetStaticMesh()->GetName();
+			JsonItem->SetStringField("MeshFile", MeshName);
 		}
 
 		// Write JsonItem to final Json Object
 		FString ItemTagString;
-		TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR> > > WriterItem = TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&ItemTagString);
+		TSharedRef< TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> WriterItem = TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&ItemTagString);
 		FJsonSerializer::Serialize(JsonItem.ToSharedRef(), WriterItem);
 
 		// Add JsonItem to JSonObject
 		JsonObject->SetObjectField(*elem->GetName(), JsonItem);
 	}
-
-	//JsonObject->SetStringField("Name", "Super Sword");
-	//JsonObject->SetNumberField("Damage", 15);
-	//JsonObject->SetNumberField("Weight", 3);
 
 	FString JsonObjectString;
 
@@ -149,8 +163,6 @@ void ASavegameManager::SaveGame()
 	UE_LOG(LogTemp, Log, TEXT("%s: Writing to file:\n %s"), *FString(__FUNCTION__), *JsonObjectString);
 
 	// File writing ******
-	FString SaveDirectory = FPaths::GameContentDir().Append("Cache/");
-	FString FileName = FString("UE4TestJSON.json");
 	bool AllowOverwriting = true;
 
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
@@ -161,7 +173,7 @@ void ASavegameManager::SaveGame()
 	if (PlatformFile.CreateDirectoryTree(*SaveDirectory))
 	{
 		// Get absolute file path
-		FString AbsoluteFilePath = SaveDirectory + "/" + FileName;
+		FString AbsoluteFilePath = SaveDirectory + "/" + SavegameFileName;
 
 		if (PlatformFile.FileExists(*AbsoluteFilePath)) PlatformFile.DeleteFile(*AbsoluteFilePath);
 		// Allow overwriting or file doesn't already exist
@@ -181,30 +193,30 @@ void ASavegameManager::LoadGame()
 		return;
 	}
 
-	// Clear level items
-	//TArray<AActor*>ItemList = PlaceComponent->GetListOfItems();
-	// TArray<AActor*>ItemList = PlaceComponent->ListOfRefillTitemsPlacedInWorld;
+	if (ItemManager == nullptr) {
+		UE_LOG(LogTemp, Error, TEXT("%s %s: Loading failed. No ItemManager instance was found."), *FString(__FUNCTION__), *FString::FromInt(__LINE__));
+		return;
+	}
 
-
-	for (auto& item : PlaceComponent->ListOfRefillTitemsPlacedInWorld)
+	// Clear level
+	for (auto& item : ItemManager->ListOfRefillTitemsPlacedInWorld)
 	{
 		item->Destroy();
 	}
-	PlaceComponent->ListOfRefillTitemsPlacedInWorld.Empty();
-
+	ItemManager->ListOfRefillTitemsPlacedInWorld.Empty();
 	// ******************
 
 	FString JsonObjectString;
 
-	// Reading writing ******
-	FString SaveDirectory = FPaths::GameContentDir().Append("Cache/");
-	FString FileName = FString("UE4TestJSON.json");
+	// Reading json file ******
+	// FString SaveDirectory = FPaths::GameContentDir().Append("Cache/");
+	// FString FileName = FString("UE4TestJSON.json");
 	bool AllowOverwriting = true;
 
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
 	// Get absolute file path
-	FString AbsoluteFilePath = SaveDirectory + "/" + FileName;
+	FString AbsoluteFilePath = SaveDirectory + "/" + SavegameFileName;
 
 	// CreateDirectoryTree returns true if the destination
 	// directory existed prior to call or has been created
@@ -219,11 +231,7 @@ void ASavegameManager::LoadGame()
 	}
 	// *****************************************************
 
-
-
-
-
-
+	// Deserialization of json file
 	TSharedPtr<FJsonObject> JsonObject;
 	TSharedRef< TJsonReader<> > ObjectReader = TJsonReaderFactory<>::Create(JsonObjectString);
 
@@ -234,67 +242,79 @@ void ASavegameManager::LoadGame()
 			UE_LOG(LogTemp, Log, TEXT("%s: Loading item %s"), *FString(__FUNCTION__), *curItem.Key);
 			auto& RefillItem = *curItem.Value->AsObject();
 
+			// Read name of item
 			FString name = RefillItem.GetStringField("Name");
 
+			// Read tags
 			TArray<FName> ItemTags;
 			for (auto& tag : RefillItem.GetArrayField("Tags"))
 			{
 				ItemTags.Add(FName(*tag.Get()->AsString()));
 			}
-
+			
+			// Read item position
 			auto& ItemPosition = *RefillItem.GetObjectField("Position");
 			float PosX = ItemPosition.GetNumberField("X");
 			float PosY = ItemPosition.GetNumberField("Y");
 			float PosZ = ItemPosition.GetNumberField("Z");
 			FVector PositionVector = FVector(PosX, PosY, PosZ);
 
+			// Read item rotation
 			auto& ItemRotation = *RefillItem.GetObjectField("Rotation");
 			float Pitch = ItemRotation.GetNumberField("Pitch");
 			float Yaw = ItemRotation.GetNumberField("Yaw");
 			float Roll = ItemRotation.GetNumberField("Roll");
 			FRotator Rotation = FRotator(Pitch, Yaw, Roll);
 
-			FString AssetPath = RefillItem.GetStringField("AssetPath");
+			// Read name of mesh
+			FString MeshFile = RefillItem.GetStringField("MeshFile");
 
-			PlaceItem(AssetPath, PositionVector, Rotation, ItemTags);
+			// Spawn item
+			ARRefillObject* PlacedRefillObject = PlaceItem(MeshFile, PositionVector, Rotation, ItemTags);
+
+			// Check if it an item on a hook
+			if (PlacedRefillObject != nullptr && PlacedRefillObject->ObjectInfo.bCanBeHookedUp) {
+
+				FName HookName = FName(*RefillItem.GetStringField("HookFName"));
+
+				if (HookName.IsValid() && ItemManager->HooknamesToHookComponent.Contains(HookName))
+					// Add the item to the hook
+					ItemManager->AddItemToHook(ItemManager->HooknamesToHookComponent[HookName], PlacedRefillObject);
+			}
+
+			// Clear AssetLoader item
+			AssetLoader->CurrentObject = nullptr;
 		}
 	}
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s: Deserialization failed"), *FString(__FUNCTION__));
 	}
+
+	// Clear ItemTemplate
+	PlaceComponent->ItemTemplate = nullptr;
 }
 
-void ASavegameManager::PlaceItem(FString AssetPath, FVector Location, FRotator Rotation, TArray<FName> ItemTags)
+ARRefillObject* ASavegameManager::PlaceItem(FString AssetName, FVector Location, FRotator Rotation, TArray<FName> ItemTags)
 {
-	FString CachePath;
-	FActorSpawnParameters SpawnInfo;
-	ARRefillObject* RefillObj = GetWorld()->SpawnActor<ARRefillObject>(Location, Rotation, SpawnInfo);
+	ARRefillObject* RefillObj = AssetLoader->SpawnAsset(AssetName, Location, Rotation);
 
-	UStaticMesh* LoadedMesh = Cast<UStaticMesh>(StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *AssetPath));
-
-	if (!LoadedMesh)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("%s: This file was not found or does not contain a static mesh"), *FString(__FUNCTION__));
-		return;
-	}
-
+	// Physics and collision
 	RefillObj->SetMobility(EComponentMobility::Movable);
-	RefillObj->GetStaticMeshComponent()->SetStaticMesh(LoadedMesh);
-
-	for (auto & tag : ItemTags)
-	{
-		RefillObj->Tags.Add(tag);
-	}
-
 	RefillObj->GetStaticMeshComponent()->SetCollisionProfileName("OverlapOnlyPawn");
 	RefillObj->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	RefillObj->GetStaticMeshComponent()->SetSimulatePhysics(true);
 	RefillObj->GetStaticMeshComponent()->SetCollisionObjectType(ECollisionChannel::ECC_PhysicsBody);
 	RefillObj->GetStaticMeshComponent()->bGenerateOverlapEvents = true;
+	// *** *** *** *** *** ***
 
-	//PlaceComponent->GetListOfItems().Add(RefillObj);
-	PlaceComponent->ListOfRefillTitemsPlacedInWorld.Add(RefillObj);
+	for (auto & tag : ItemTags)
+	{
+		if (RefillObj->Tags.Contains(tag) == false) RefillObj->Tags.Add(tag); // Only add tag if not already existing
+	}
 
+	ItemManager->ListOfRefillTitemsPlacedInWorld.Add(RefillObj);
+
+	return RefillObj;
 }
 
