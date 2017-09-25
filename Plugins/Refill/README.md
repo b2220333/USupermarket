@@ -78,5 +78,3 @@ The following structure is currently used
 
 ```HookPosition``` only needs to be set if this item can be attached to a hook.
 
-## Savegame Manager
-
