@@ -18,15 +18,11 @@ AMyHUD::AMyHUD() {
 	}
 
 	ItemImageDimension = 300;
-
-	HUDTextCounter = 0;
 }
 
 void AMyHUD::BeginPlay()
 {
-	FOnActorSpawned::FDelegate ActorSpawnedDelegate = FOnActorSpawned::FDelegate::CreateUObject(this, &AMyHUD::OnActorSpawned);
-	GetWorld()->AddOnActorSpawnedHandler(ActorSpawnedDelegate);
-
+	// Load crosshair texture
 	int32 Width;
 	int32 Height;
 	Crosshair = LoadTexture2D_FromFile(FPaths::GameContentDir() + CROSSHAIR_PATH, EJoyImageFormats::PNG, bCrosshairTextureIsValid, Width, Height);
@@ -34,6 +30,7 @@ void AMyHUD::BeginPlay()
 	if (bCrosshairTextureIsValid == false) {
 		UE_LOG(LogTemp, Warning, TEXT("%s: Could not find crosshair image %s"), *FString(__FUNCTION__), CROSSHAIR_PATH);
 	}
+	// *** *** *** *** *** ***
 
 	ACharacter* Character = Cast<ARMyCharacter>(GetWorld()->GetFirstPlayerController()->GetCharacter());
 
@@ -43,7 +40,8 @@ void AMyHUD::BeginPlay()
 
 		if (PlayerInputComponent)
 		{
-			PlayerInputComponent->BindAction("ToggleInventory", IE_Pressed, this, &AMyHUD::ShowListWidget); // TODO hardcoded key
+			// Bind function to input
+			PlayerInputComponent->BindAction("ToggleInventory", IE_Pressed, this, &AMyHUD::ShowListWidget);
 		}
 	}
 }
@@ -70,7 +68,7 @@ void AMyHUD::ShowListWidget()
 	else
 	{
 		// Enable list
-		WidgetInstance = CreateWidget<UHUDWidget>(GetWorld(), UHUDWidget::StaticClass());
+		WidgetInstance = CreateWidget<UHUDWidget>(GetWorld(), UHUDWidget::StaticClass()); // Create new widged instance
 
 		if (WidgetInstance != nullptr)
 		{
@@ -104,16 +102,16 @@ void AMyHUD::DrawHUD()
 		float PosX = Canvas->SizeX / 2 - Crosshair->GetSizeX() / 2 * ScaleFactorCrosshair;
 		float PosY = Canvas->SizeY / 2 - Crosshair->GetSizeY() / 2 * ScaleFactorCrosshair;
 		DrawTextureSimple(Crosshair, PosX, PosY, ScaleFactorCrosshair);
-	} 
+	}
 
 	// Draws item image
 	if (ItemImage != nullptr)
 	{
+		// Calculate position and scale factor
 		float ScalefactorImage = ItemImageDimension / ((ItemImage->GetSizeX() + ItemImage->GetSizeY()) / 2);
 		float PosX = Canvas->SizeX / 2 - ItemImage->GetSizeX() / 2 * ScalefactorImage;
 		float PosY = Canvas->SizeY / 2 - ItemImage->GetSizeY() / 2 * ScalefactorImage;
 
-		//DrawTextureSimple(ItemImage, 0, Canvas->SizeY - 50, ScalefactorImage);
 		DrawTextureSimple(ItemImage, PosX, PosY, ScalefactorImage); // Display image in center
 	}
 }
@@ -121,19 +119,17 @@ void AMyHUD::DrawHUD()
 void AMyHUD::PreviewRefillItem(FString ImagePath, FString ItemName) {
 	bool IsValid;
 
+	// Load the preview image
 	ItemImage = LoadTexture2D_FromFile(ImagePath, EJoyImageFormats::PNG, IsValid, ImageWidth, ImageHeight);
 
 	if (IsValid == false) {
 		UE_LOG(LogTemp, Warning, TEXT("%s: Item image (%s) not found"), *FString(__FUNCTION__), *ImagePath.Append(ItemName));
-	
+
+		// Load the 'NoImage' image
 		ItemImage = LoadTexture2D_FromFile(FPaths::GameContentDir() + NOIMAGE_PATH, EJoyImageFormats::PNG, IsValid, ImageWidth, ImageHeight);
 
-		if(IsValid == false) UE_LOG(LogTemp, Warning, TEXT("%s: NoImage image couldn't be found"), *FString(__FUNCTION__));
-
+		if (IsValid == false) UE_LOG(LogTemp, Warning, TEXT("%s: NoImage image couldn't be found"), *FString(__FUNCTION__));
 	}
-
-
-
 }
 
 void AMyHUD::DisablePreviewImage()
@@ -160,6 +156,7 @@ FString AMyHUD::GetJoyImageExtension(EJoyImageFormats JoyFormat)
 
 EImageFormat::Type AMyHUD::GetJoyImageFormat(EJoyImageFormats JoyFormat)
 {
+	// https://github.com/EverNewJoy/VictoryPlugin
 	switch (JoyFormat)
 	{
 	case EJoyImageFormats::JPG: return EImageFormat::JPEG;
@@ -176,6 +173,7 @@ EImageFormat::Type AMyHUD::GetJoyImageFormat(EJoyImageFormats JoyFormat)
 
 UTexture2D* AMyHUD::LoadTexture2D_FromFile(const FString& FullFilePath, EJoyImageFormats ImageFormat, bool& IsValid, int32& Width, int32& Height)
 {
+	// https://github.com/EverNewJoy/VictoryPlugin
 	IsValid = false;
 	UTexture2D* LoadedT2D = NULL;
 
@@ -218,15 +216,6 @@ UTexture2D* AMyHUD::LoadTexture2D_FromFile(const FString& FullFilePath, EJoyImag
 	return LoadedT2D;
 }
 
-
-
-void AMyHUD::OnActorSpawned(AActor* SpawnedActor)
-{
-	// TODO Check if this actor implements the interface to get its stats
-	// UE_LOG(LogTemp, Warning, TEXT("AMyHUD::OnActorSpawned: Actor %s spawned"), *SpawnedActor->GetName());
-
-	// TODO The problem here is that we spawn clones of the object everytime we move the mouse cursor which will then fire the callback a lot
-}
 
 
 

@@ -1,10 +1,11 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Handles loading and saving of the current game
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "../AssetLoader/CacheAssetLoader.h"
+#include "ItemManager.h"
 #include "RMyCharacter.h"
 #include "../Components/CPlaceItem.h"
 #include "SavegameManager.generated.h"
@@ -17,23 +18,22 @@ class REFILL_API ASavegameManager : public AActor
 
 
 public:
-	// typedef TSharedRef < TJsonWriter< TCHAR, TPrettyJsonPrintPolicy = "" > > FPrettyJsonWriter;
-	// typedef TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>> FPrettyJsonWriter;
-
 	// Sets default values for this actor's properties
 	ASavegameManager();
 
-	UPROPERTY(EditAnywhere)
-		bool bLoadLastSave;
-
-
-	UPROPERTY(EditAnywhere)
-		ARMyCharacter* PlayerCharacter;
-
-	UPROPERTY(EditAnywhere)
+	// The AssetLoader instance
+	UPROPERTY(EditAnywhere, Category = "Refills")
 		ACacheAssetLoader* AssetLoader;
 
-	UCPlaceItem* PlaceComponent;
+	// The Name of the savegame file
+	UPROPERTY(EditAnywhere, Category = "Refills")
+		FString SavegameFileName;
+
+	// The folder of the savegame file
+	UPROPERTY(EditAnywhere, Category = "Refills")
+		FString SaveDirectory;
+
+	UCPlaceItem* PlaceComponent; // The player's CPlaceItem Component
 
 protected:
 	// Called when the game starts or when spawned
@@ -43,7 +43,16 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
+	// Save the game
 	void SaveGame();
+
+	// Load the game
 	void LoadGame();
-	void PlaceItem(FString AssetPath, FVector Location, FRotator Rotation, TArray<FName> Tags);
+
+	// Place an item in the world
+	ARRefillObject* PlaceItem(FString AssetName, FVector Location, FRotator Rotation, TArray<FName> Tags);
+
+private:
+	ARMyCharacter* PlayerCharacter; // Character instance
+	AItemManager* ItemManager; // ItemManager instance
 };

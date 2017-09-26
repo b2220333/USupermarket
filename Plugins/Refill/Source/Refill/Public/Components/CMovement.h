@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Handles the character movement
 
 #pragma once
 
@@ -25,17 +25,16 @@ protected:
 	// Handles strafing Left/Right
 	void MoveRight(const float Val);
 
+	// Handles mouse x-axis input
 	void AddControllerPitchInput(const float Val);
 
+	// Handles mouse y-axis input
 	void AddControllerYawInput(const float Val);
 
 public:	
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	ACharacter* Character;
-
-	bool bPlayerHasMoved;
-		
-	
+	// The player character instance
+	ACharacter* Character;	 
 };

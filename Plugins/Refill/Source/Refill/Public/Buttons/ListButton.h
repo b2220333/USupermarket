@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// A button used for the inventory with functionality for OnHover and OnClick to spawn assets
 
 #pragma once
 
@@ -9,12 +9,6 @@
 #include "../AssetLoader/CacheAssetLoader.h"
 #include "ListButton.generated.h"
 
- //DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLoadDelegate, FString, ID);
- //DECLARE_DYNAMIC_MULTICAST_DELEGATE(FClickDelegate);
-
-/**
- *
- */
 class AMyHUD; // Forward declaration
 
 UCLASS()
@@ -23,37 +17,30 @@ class REFILL_API UListButton : public UButton
 	GENERATED_BODY()
 
 private:
-	UPROPERTY()
-		FString AssetID;
+	// The asset ID/name
+	FString AssetID;
 
-	//UPROPERTY()
-	//ARAssetLoader* AssetLoader;
-	UPROPERTY()
-		ACacheAssetLoader* AssetLoader;
+	// The AssetLoader instance
+	ACacheAssetLoader* AssetLoader;
 
+	// The HUD
 	AMyHUD* MainHUD;
 public:
 	UListButton();
 
-	//UPROPERTY()
-	//	FLoadDelegate load;
-
-	//UPROPERTY()
-	//	FClickDelegate click;
-
+	// Gets called if the user clicks this button
 	UFUNCTION()
 		void OnClick();
 
+	// Gets caled if the mouse hovers over this button
 	UFUNCTION()
 		void OnHover();
 
+	// Gets called if the mouse no longer is hovering this button
 	UFUNCTION()
 		void OnUnhover();
 
 
-	//UFUNCTION()
-	//void LoadAsset(FString ID);
-
-	// void SetupButton(ARAssetLoader* AssetLoader, FString AssetID);
+	// Setup function for this button
 	void SetupButton(ACacheAssetLoader* AssetLoader, FString AssetID);
 };

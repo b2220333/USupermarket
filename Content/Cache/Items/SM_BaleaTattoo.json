@@ -1,8 +1,12 @@
 {
-   "Tag":"Refill;Hookable,True;",
-   "HookPosition":{
-      "X":0.0,
-      "Y":0.0,
-      "Z":8.0
-   }
+  "Tags": [
+    "Refill;Hookable,True;"
+  ],
+  "Company":  "Balea",
+  "Name": "Tatoo",
+  "HookPosition": {
+    "X": 0.0,
+    "Y": 0.0,
+    "Z": 8.0
+  }
 }

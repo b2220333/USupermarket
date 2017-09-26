@@ -1,17 +1,18 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Handles picking up and selecting items
 
 #pragma once
 
 #include <utility>
 #include "Components/ActorComponent.h"
 #include "HoleTabComponent.h"
-// #include "Structs/Obb.h"
+#include "ItemManager.h"
 #include "DrawDebugHelpers.h"
 #include "../AssetLoader/RAssetLoader.h"
 #include "../AssetLoader/CacheAssetLoader.h"
 #include "MyHUD.h"
 #include "CPlaceItem.generated.h"
 
+// The state the player can be in. Either selecting items or placing new items
 UENUM()
 enum class InteractionState : uint8
 {
@@ -28,49 +29,52 @@ public:
 	// Sets default values for this component's properties
 	UCPlaceItem();
 
-	UPROPERTY(EditAnywhere)
+	// Enables more debug information
+	UPROPERTY(EditAnywhere, Category = "Refills")
 		bool bIsDebugMode;
 
-	UPROPERTY(EditAnywhere)
+	// The raycast range of the player
+	UPROPERTY(EditAnywhere, Category = "Refills")
 		float RaycastRange;
 
+	// The AssetLoader instance
+	UPROPERTY(EditAnywhere, Category = "Refills")
+		ACacheAssetLoader* AssetLoader;
+
+	// Material for the object when it is colliding
+	UPROPERTY(EditAnywhere, Category = "Refills")
+		UMaterialInterface* CollisionMaterial;
+
 	// The spacing along the X-axis
-	UPROPERTY(EditAnywhere)
-		float SpacingX;
+	float SpacingX;
 
 	// The spacing along the Y-axis
-	UPROPERTY(EditAnywhere)
-		float SpacingY;
+	float SpacingY;
 
-	UPROPERTY(EditAnywhere)
-		int Stacking;
-
-	//UPROPERTY(EditAnywhere)
-	//	ARAssetLoader* AssetLoader;
-
-	UPROPERTY(EditAnywhere)
-		ACacheAssetLoader* AssetLoader;
+	// The stack height
+	int Stacking;
 
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	// Setup for key bindings
 	void SetupKeyBindings(UInputComponent* PlayerInputComponent);
 
+	// The player character instance
 	ACharacter* Character;
 
-	// Material for the object when it is colliding
-	UPROPERTY(EditAnywhere)
-		UMaterialInterface* RedMaterial;
+	// The materials of the currently used ItemTemplate
+	UMaterialInterface* ItemMaterial;
 
-	UPROPERTY()
-		UMaterialInterface* ItemMaterial;
-
-	TArray<AActor*> ListOfRefillTitemsPlacedInWorld;
+	// The item which the player can place
+	ARRefillObject* ItemTemplate;
 
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
 
-	/*std::pair<FHitResult, TArray<FName>>*/ FHitResult StartRaytrace();
+	// Raytrace function
+	FHitResult StartRaytrace();
 
 	// Inreases or decreases the space between the items
 	void ChangeSpacing(const float Val);
@@ -86,7 +90,7 @@ protected:
 
 private:
 
-	//**** UI TextmessageIDs
+	//**** GEngine UI Textmessage IDs
 	int TextID_XSpacing = 1;
 	int TextID_YSpacing = 2;
 	int TextID_SpacingStep = 3;
@@ -96,48 +100,48 @@ private:
 	int TextID_WholeShelfMode = 7;
 	//**********************
 
-	AActor* ItemTemplate;
+	// The ItemManager instance
+	AItemManager* ItemManager;
 
-	FVector LocationToPlaceItem;
-	FRotator Rotation;
+	// The HUD instance
+	AMyHUD* HUD;
 
+	// The current position the player is trying to place an item
+	FVector PlaceItemLocation;
+	// The item's roation
+	FRotator PlaceItemRotation;
 
+	// A set of all shelves (with the right TAG) in the world
 	TSet<AActor*> SetOfShelves;
-	TSet<UActorComponent*> SetOfHooks;
-	UPrimitiveComponent* LastFocusedHook;
 
-	TMap<FName, UActorComponent*> HooknamesToHookComponent;
-	TMap<UActorComponent*, TArray<AActor*>> ItemsOnHook;
+	// The last hook the player focussed
+	UActorComponent* LastFocussedHook;
 
 	// The current state (placing, removing) of the player
 	InteractionState CurrentInteractionState;
 
+	// Whether or not the current item can be placed
 	bool bItemCanBePlaced;
 
-	// True if the player has chenged the position or rotation of the item
-	bool bPlayerHasMoved;
-
+	// The results of the last raytrace
 	FHitResult RaytraceResults;
-
 
 	// The value how much to change the gap between items in placing mode
 	float SpacingStep;
 
-	AMyHUD* HUD;
-
 	// The item, the player is loocking at
-	AActor* FocusedItem;
+	ARRefillObject* FocussedItem;
 
 	// A list of all items selected
-	TArray<AActor*> SelectedItems;
+	TArray<ARRefillObject*> SelectedItems;
 
 	// A list of reusable objects to avoid spawning and destroying objects each tick
 	UPROPERTY()
-		TArray<AActor*> ObjectPool;
+		TArray<ARRefillObject*> ObjectPool;
 
 	// The Items to show before placing them
 	UPROPERTY()
-		TArray<AActor*> PhantomItems;
+		TArray<ARRefillObject*> PhantomItems;
 
 	// Checks if the player has moved or pressed any button and makes new selections
 	void CheckPlayerInput();
@@ -145,22 +149,19 @@ private:
 	// Displays the phantom item at a position where the raytrace hit the shelf
 	void DisplayPhantomItem(FHitResult Hit);
 
+	// Shows the items on the hook the player is pointing at
 	void DisplayPhantomHookItem(FHitResult Hit);
 
-	void SelectItem(AActor* Item); // Selects and highlights an item
+	void SelectItem(ARRefillObject* Item); // Selects and highlights an item
 	void SelectRow(); // Selects all items in a row
 	void SelectAllItems(); // Selects all items on a shelf
 	void DeselectItems(); // Deselects all items
 
-	void CreateConstraintsForHookableItems(AActor* Actor);
-
 	// Helper function to get the static mesh from an actor
 	UStaticMeshComponent* GetStaticMesh(AActor* Actor);
 
-
-
 	// Returns a clone of the given actor
-	AActor* GetCloneActor(AActor* ActorToClone);
+	ARRefillObject* GetCloneActor(ARRefillObject* ActorToClone);
 
 	// Checks for collisions. Returns true if the item is placeable
 	bool CheckCollisions(AActor* Actor, UActorComponent* IgnoredComponent = nullptr);
@@ -176,23 +177,22 @@ private:
 	void CheckStackedNeighbour(AActor* FromActor);
 
 	// Finds the shelf the actor is standing on
-	ABlockingVolume* FindShelf(AActor* FromActor);
-	// Finds the hook the item is hanging on
-	UActorComponent* FindHookOfItem(AActor* Item);
+	ABlockingVolume* FindShelfOfFocussedActor();
 
+	// Deactivates all PhantomItems
 	void DeactivatePhantomItems();
 
 	// *** INPUT ***
-	bool bLeftShiftWasPressed;
-	bool bLeftControlWasPressed;
+	bool bRowModeKeyWasPressed;
+	bool bWholeShelfModeKeyWasPressed;
 
-	bool bLeftShiftIsHeldDown;
-	bool bLeftControlIsHeldDown;
+	bool bRowModeKeyIsHeldDown;
+	bool bWholeShelfModeKeyIsHeldDown;
 
-	bool bLeftShiftWasReleased;
-	bool bLeftControlWasReleased;
+	bool bRowModeKeyWasReleased;
+	bool bWholeShelfModeKeyWasReleased;
 
-	bool bInputHasBeenChanged; 
+	bool bInputHasBeenChanged;
 
 
 	// Increases the steps for spacing the items
@@ -222,4 +222,5 @@ private:
 	void OnKeyWholeShelfModeReleased();
 
 	void ResetInputKeys();
+	// ***********************************************
 };

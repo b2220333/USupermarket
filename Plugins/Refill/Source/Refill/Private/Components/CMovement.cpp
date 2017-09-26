@@ -34,9 +34,6 @@ void UCMovement::BeginPlay()
 			PlayerInputComponent->BindAxis("CameraYaw", this, &UCMovement::AddControllerYawInput);
 		}
 	}
-
-	bPlayerHasMoved = false;
-
 }
 
 void UCMovement::MoveForward(const float Val){

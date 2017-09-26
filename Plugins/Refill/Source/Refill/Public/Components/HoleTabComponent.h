@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// A dummy component to indicate the hole of an item which can be placed on a hook
 
 #pragma once
 

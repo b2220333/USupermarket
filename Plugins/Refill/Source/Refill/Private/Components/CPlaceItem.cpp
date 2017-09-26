@@ -2,9 +2,6 @@
 #define TAG_KEY_SHELF "Shelf"
 #define TAG_SHELF "Refill;Shelf,True;"
 
-#define TAG_KEY_HOOK "Hook"
-#define TAG_HOOK "Refill;Hook,True;"
-
 #define TAG_KEY_ITEM "RefillObject"
 #define TAG_ITEM "Refill;RefillObject,True;"
 
@@ -36,20 +33,25 @@ void UCPlaceItem::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Get all actors with specific tag
-	ListOfRefillTitemsPlacedInWorld = FTagStatics::GetActorsWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_ITEM, "True");
-	SetOfShelves = FTagStatics::GetActorSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_SHELF, "True");
-	//SetOfHooks = FTagStatics::GetActorSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_HOOK, "True");
-	SetOfHooks = FTagStatics::GetComponentSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_HOOK, "True");
-
-	// Read all the Hook names
-	for (auto& HookComponent : SetOfHooks) {
-		HooknamesToHookComponent.Add(HookComponent->GetFName(), HookComponent);
+	// Find ItemManager
+	for (TActorIterator<AItemManager>Itr(GetWorld()); Itr; ++Itr)
+	{
+		ItemManager = *Itr;
+		break;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("%s: Items found %i"), *FString(__FUNCTION__), ListOfRefillTitemsPlacedInWorld.Num());
+	if (ItemManager == nullptr) {
+		// Let the game crash if no ItemManager was found
+		UE_LOG(LogTemp, Fatal, TEXT("%s %s No ItemManager instance was found."), *FString(__FUNCTION__), *FString::FromInt(__LINE__));
+		return;
+	}
+
+	// Get all actors with specific tag
+	ItemManager->ListOfRefillTitemsPlacedInWorld = FTagStatics::GetActorsWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_ITEM, "True");
+	SetOfShelves = FTagStatics::GetActorSetWithKeyValuePair(GetWorld(), FString("Refill"), TAG_KEY_SHELF, "True");
+
+	UE_LOG(LogTemp, Log, TEXT("%s: Items found %i"), *FString(__FUNCTION__), ItemManager->ListOfRefillTitemsPlacedInWorld.Num());
 	UE_LOG(LogTemp, Log, TEXT("%s: Shelves found %i"), *FString(__FUNCTION__), SetOfShelves.Num());
-	UE_LOG(LogTemp, Log, TEXT("%s: Hooks found %i"), *FString(__FUNCTION__), SetOfHooks.Num());
 	// *********************************************** 
 
 	if (AssetLoader == nullptr)
@@ -59,7 +61,7 @@ void UCPlaceItem::BeginPlay()
 		return;
 	}
 	else {
-		// Bind function to delegate
+		// Bind OnNewItemSpawned function to delegate
 		UE_LOG(LogTemp, Log, TEXT("%s: Bind OnNewItemSpawned"), *FString(__FUNCTION__));
 		AssetLoader->OnItemSpawend.AddDynamic(this, &UCPlaceItem::OnNewItemSpawned);
 	}
@@ -67,7 +69,7 @@ void UCPlaceItem::BeginPlay()
 	Character = Cast<ACharacter>(GetOwner());
 	if (Character)
 	{
-		HUD = Cast<AMyHUD>(GetWorld()->GetFirstPlayerController()->GetHUD());
+		HUD = Cast<AMyHUD>(GetWorld()->GetFirstPlayerController()->GetHUD()); // Assing the hud
 	}
 	else
 	{
@@ -90,13 +92,16 @@ void UCPlaceItem::TickComponent(float DeltaTime, ELevelTick TickType, FActorComp
 	// Check for any movement or changes in the players input
 	CheckPlayerInput();
 
-	if (bLeftShiftIsHeldDown) {
+	// Add visual feedback in which state the player is
+	if (bRowModeKeyIsHeldDown) {
 		GEngine->AddOnScreenDebugMessage(TextID_RowMode, 0.1f, FColor::Green, "Row-Mode", false);
 	}
-	else if (bLeftControlIsHeldDown) {
+	else if (bWholeShelfModeKeyIsHeldDown) {
 
-		if (bLeftControlIsHeldDown) GEngine->AddOnScreenDebugMessage(TextID_WholeShelfMode, 0.1f, FColor::Green, "WholeShelf-Mode", false);
+		if (bWholeShelfModeKeyIsHeldDown) GEngine->AddOnScreenDebugMessage(TextID_WholeShelfMode, 0.1f, FColor::Green, "WholeShelf-Mode", false);
 	}
+
+	// Reset the input key variables each tick
 	ResetInputKeys();
 }
 
@@ -142,12 +147,20 @@ FHitResult UCPlaceItem::StartRaytrace()
 
 	if (CurrentInteractionState == InteractionState::PLACING)
 	{
-		TraceParams.AddIgnoredActors(ListOfRefillTitemsPlacedInWorld); // Ignore all placed RefillITems in the world so we can place new items behind them
+		// Ignore all placed RefillITems in the world so we can place new items behind them
+		TraceParams.AddIgnoredActors(ItemManager->ListOfRefillTitemsPlacedInWorld);
 	}
 
 	TraceParams.AddIgnoredActor(GetOwner()); // Ignore the player
 	TraceParams.AddIgnoredActor(ItemTemplate); // Ignore the item in our hand
-	TraceParams.AddIgnoredActors(PhantomItems); // Ignore al phantom items we are currently showing
+
+	// Add phantom items to be ignored by the raytrace
+	TArray<AActor*> IgnoredPhantomItems;
+	for (auto& PhantomElem : PhantomItems) {
+		IgnoredPhantomItems.Add(PhantomElem);
+	}
+	TraceParams.AddIgnoredActors(IgnoredPhantomItems);
+	// *** *** *** *** *** *** *** *** *** *** *** ***
 
 	GetWorld()->LineTraceSingleByChannel(Hit, StartTrace, EndTrace, ECollisionChannel::ECC_WorldStatic, TraceParams);
 
@@ -158,24 +171,25 @@ void UCPlaceItem::ChangeSpacing(const float Val)
 {
 	if (Val == 0) return;
 
-	if (bLeftShiftIsHeldDown)
+	if (bRowModeKeyIsHeldDown)
 	{
-		SpacingX += Val / SpacingStep;
+		SpacingX += Val / SpacingStep; // Add the value of the mouse wheel 
 
-		if (SpacingX < 1) SpacingX = 1;
+		if (SpacingX < 1) SpacingX = 1; // Never get lower than 1
 
-		LocationToPlaceItem = FVector::ZeroVector; // Reset this vector to force a new raytrace
+		PlaceItemLocation = FVector::ZeroVector; // Reset this vector to force a new raytrace
 	}
 
-	if (bLeftControlIsHeldDown)
+	if (bWholeShelfModeKeyIsHeldDown)
 	{
 		SpacingY += Val / SpacingStep;
 
 		if (SpacingY < 1) SpacingY = 1;
 
-		LocationToPlaceItem = FVector::ZeroVector; // Reset this vector to force a new raytrace
+		PlaceItemLocation = FVector::ZeroVector; // Reset this vector to force a new raytrace
 	}
 
+	// Visual feedback
 	GEngine->AddOnScreenDebugMessage(TextID_XSpacing, 100000.0f, FColor::Yellow, "Row Spacing: " + FString::SanitizeFloat(SpacingX), false);
 	GEngine->AddOnScreenDebugMessage(TextID_YSpacing, 100000.0f, FColor::Yellow, "Column Spacing: " + FString::SanitizeFloat(SpacingY), false);
 
@@ -185,12 +199,12 @@ void UCPlaceItem::PlaceItems()
 {
 	if (bItemCanBePlaced)
 	{
-		// We only need to remove the items from the phantom item array so they won't get destroyed the next time we move the mouse
-		TArray<AActor*> ItemsToPlace = PhantomItems;
+		TArray<ARRefillObject*> ItemsToPlace = PhantomItems;
 
+		// For each Phantom item 
 		for (auto &elem : ItemsToPlace)
 		{
-			UStaticMeshComponent* Mesh = GetStaticMesh(elem);
+			UStaticMeshComponent* Mesh = elem->GetStaticMeshComponent();
 
 			// Setup parameters for the object to place
 			if (Mesh != nullptr)
@@ -204,14 +218,21 @@ void UCPlaceItem::PlaceItems()
 			}
 			// ****************************************
 
-			ListOfRefillTitemsPlacedInWorld.Add(elem);
+			// Add to the list of all items in the world
+			ItemManager->ListOfRefillTitemsPlacedInWorld.Add(elem);
 
-			if (FTagStatics::HasKeyValuePair(elem, "Refill", "Hookable", "True")) {
-				CreateConstraintsForHookableItems(elem);
+			// Check if it can be placed on a hook
+			if (elem->ObjectInfo.bCanBeHookedUp) {
+				if (ItemManager != nullptr) {
+					ItemManager->AddItemToHook(LastFocussedHook, elem); // Add the item on the hook
+				}
 			}
 
+			// We  need to remove the items from the phantom item array so they won't get destroyed the next time we move the mouse
 			PhantomItems.RemoveSwap(elem);
-			ObjectPool.RemoveSwap(elem); // Also remove item from the object pool since it isn't available anymore for phantom items
+
+			// Also remove item from the object pool since it isn't available anymore for phantom items
+			ObjectPool.RemoveSwap(elem);
 		}
 	}
 }
@@ -221,16 +242,20 @@ void UCPlaceItem::RemoveItems()
 	for (auto & elem : SelectedItems)
 	{
 		// Check for a hooked item and remove it
-		UActorComponent* HookComponent = FindHookOfItem(elem);
-		if (HookComponent != nullptr && ItemsOnHook.Contains(HookComponent)) {
-			ItemsOnHook[HookComponent].Remove(elem);
-		}
-		// *** *** *** 
+		if (ItemManager != nullptr) {
+			UActorComponent* HookComponent = ItemManager->FindHookOfItem(elem);
+			ItemManager->RemoveItemFromHook(HookComponent, elem); // Remove the item pointer from the hook 
 
-		ListOfRefillTitemsPlacedInWorld.Remove(elem);
+		}
+
+		// Remove the item from the list of all items in the world
+		ItemManager->ListOfRefillTitemsPlacedInWorld.Remove(elem);
+
+		// Finally destroy the actor of this item
 		elem->Destroy();
 	}
 
+	// Deselect items
 	DeselectItems();
 }
 
@@ -243,76 +268,77 @@ void UCPlaceItem::CheckPlayerInput()
 	if (RaytraceResults.GetActor() != nullptr)
 	{
 		if (CurrentInteractionState == InteractionState::PLACING) {
+			// We are in placing mode
 
-			DeselectItems();
-			if (FocusedItem != nullptr)	GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false);
+			DeselectItems(); // First deselect all previous items
+
+			if (FocussedItem != nullptr) GetStaticMesh(FocussedItem)->SetRenderCustomDepth(false); // Un-higlight the item
 
 			if (SetOfShelves.Contains(RaytraceResults.GetActor()))
 			{
 				// We hit a shelf and we are in placing mode
-				LastFocusedHook = nullptr; // Reset hook
-				DisplayPhantomItem(RaytraceResults);
+				LastFocussedHook = nullptr; // Reset hook
+				DisplayPhantomItem(RaytraceResults); // Show PhantomItem on the shelf
 			}
 			else {
 				// Check if it is a hook
+
 				UActorComponent* Component = Cast<UActorComponent>(RaytraceResults.GetComponent());
-				if (Component != nullptr && SetOfHooks.Contains(Component)) {
+				if (Component != nullptr && ItemManager != nullptr && ItemManager->SetOfHooks.Contains(Component)) {
 					Stacking = 1; // Reset stacking
-					DisplayPhantomHookItem(RaytraceResults);
+					DisplayPhantomHookItem(RaytraceResults); // Show PhantomItem on the hook
 				}
 				else {
-					// We did not hit a shelf or a hook
+					// We did not hit a shelf or a hook. Deactivate PhantomItems
 					DeactivatePhantomItems();
 				}
 			}
 		}
 		else if (CurrentInteractionState == InteractionState::SELECTING)
 		{
-			if (ListOfRefillTitemsPlacedInWorld.Contains(RaytraceResults.GetActor())) {
-				// We hit a refill object while in selection mode
+			// We're in Selection mode
+			if (ItemManager->ListOfRefillTitemsPlacedInWorld.Contains(RaytraceResults.GetActor())) {
+				// We hit a refill object while in selection mode. Deactivate all PhantomItems
 				DeactivatePhantomItems();
 
-				// Check if it we focused on a new item or activated row resp wholeShelf mode
-				bool bIsNewSelection = FocusedItem != RaytraceResults.GetActor() || bLeftShiftWasPressed || bLeftControlWasPressed || bLeftShiftWasReleased || bLeftControlWasReleased;
+				// Check if it we focused on a new item or activated row- or wholeShelf mode
+				bool bIsNewSelection = FocussedItem != RaytraceResults.GetActor() || bRowModeKeyWasPressed || bWholeShelfModeKeyWasPressed || bRowModeKeyWasReleased || bWholeShelfModeKeyWasReleased;
 
 				if (bIsNewSelection)
 				{
-					if (FocusedItem != nullptr)
+					if (FocussedItem != nullptr)
 					{
-						GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false); // Deactivate outline of the previous item
-						SelectedItems.Remove(FocusedItem); // Remove the old item from the list of selected items
+						GetStaticMesh(FocussedItem)->SetRenderCustomDepth(false); // Deactivate outline of the previous item
+						SelectedItems.Remove(FocussedItem); // Remove the old item from the list of selected items
 					}
 
-					FocusedItem = RaytraceResults.GetActor(); // RaytraceResults.first.GetActor(); // Assign new item as focused item
-					// GetStaticMesh(FocusedItem)->SetRenderCustomDepth(true); // Reactivate outline effect for new item
+					FocussedItem = Cast<ARRefillObject>(RaytraceResults.GetActor()); // Assign new item as focused item
 
-
-					if (bLeftShiftIsHeldDown)
+					if (bRowModeKeyIsHeldDown)
 					{
 						DeselectItems(); // Deselect all old items
 						SelectRow(); // Select the new row
 					}
-					else if (bLeftControlIsHeldDown)
+					else if (bWholeShelfModeKeyIsHeldDown)
 					{
 						DeselectItems(); // Deselect all old items
 						SelectAllItems(); // Select all items on the shelf
 					}
 					else
 					{
-						SelectItem(FocusedItem);
-						//SelectedItems.Add(FocusedItem); 
+						SelectItem(FocussedItem); // We only select the one item the player is focussing
 					}
 				}
 
 			}
 			else {
-				// We hit something that isnt a refills object
+				// We hit something that isn't a refills object
 				DeselectItems();
 
-				if (FocusedItem != nullptr)
+				if (FocussedItem != nullptr)
 				{
-					GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false);
-					FocusedItem = nullptr;
+					GetStaticMesh(FocussedItem)->SetRenderCustomDepth(false); // Deactivate hinglighting
+					FocussedItem = nullptr;
 				}
 			}
 		}
@@ -321,12 +347,11 @@ void UCPlaceItem::CheckPlayerInput()
 			DeselectItems();
 
 			// We are not in selecting mode anymore
-			if (FocusedItem != nullptr)
+			if (FocussedItem != nullptr)
 			{
 				// Disable last focused item
-				GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false);
-				//SelectedItems.Remove(FocusedItem);
-				FocusedItem = nullptr;
+				GetStaticMesh(FocussedItem)->SetRenderCustomDepth(false);
+				FocussedItem = nullptr;
 			}
 		}
 	}
@@ -335,38 +360,39 @@ void UCPlaceItem::CheckPlayerInput()
 		DeactivatePhantomItems();
 
 		// We are not in selecting mode anymore
-		if (FocusedItem != nullptr)
+		if (FocussedItem != nullptr)
 		{
 			// Disable last focused item
 			DeselectItems();
-			GetStaticMesh(FocusedItem)->SetRenderCustomDepth(false);
-			//SelectedItems.Remove(FocusedItem);
-			FocusedItem = nullptr;
+			GetStaticMesh(FocussedItem)->SetRenderCustomDepth(false);
+			FocussedItem = nullptr;
 		}
 	}
 }
 
 void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 {
-	if (Character == nullptr) return;
 	if (ItemTemplate == nullptr) return;
 
 	ABlockingVolume* BlockingVol = Cast<ABlockingVolume>(Hit.GetActor());
-	ItemTemplate->K2_SetActorRotation(Rotation, true);// Set rotation before checking for extends
+	ItemTemplate->K2_SetActorRotation(PlaceItemRotation, true);// Set rotation before checking for extends
 
 	// Get position and bounds of the item
 	FVector ItemOrigin;
 	FVector ItemBoundExtend;
 	ItemTemplate->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
 
-	FVector DeltaOfPivotToCenter = ItemOrigin - ItemTemplate->GetActorLocation(); // Get the difference between pivot and center of blocking volume
+	// Get the difference between pivot and center of blocking volume
+	FVector DeltaOfPivotToCenter = ItemOrigin - ItemTemplate->GetActorLocation();
 
-	ItemTemplate->SetActorRotation(BlockingVol->GetActorRotation() + FRotator::MakeFromEuler(FVector(0, 0, 180)) + Rotation); // Set item's rotation to blocking volume rotation + the item rotation
+	// Set item's rotation to blocking volume rotation + the item rotation
+	ItemTemplate->SetActorRotation(BlockingVol->GetActorRotation() + FRotator::MakeFromEuler(FVector(0, 0, 180)) + PlaceItemRotation); // TODO Hardcoded 180
 
+	// *** Get blocking volume bounds ***
 	FVector BlockingVolumeOrigin;
 	FVector NotUsed; // We don't need the extends of the blocking volume's AABB
-
 	BlockingVol->GetActorBounds(false, BlockingVolumeOrigin, NotUsed);
+	// *** *** *** *** *** *** *** *** **
 
 	// Use the extends of the brush. This is the extend of Object Oriented Bounding Box
 	FVector BlockingVolumeExtend = BlockingVol->Brush->Bounds.BoxExtent;
@@ -379,12 +405,12 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 	// Calculating new position
 	FVector Position = Hit.ImpactPoint;
 
-	// BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z -> The lower edge of the item is at the height of the pivot point of the blocking volume
+	// Calculate new position
 	FVector NewPosition = FVector(Position.X, Position.Y, BlockingVolumeOrigin.Z + ItemBoundExtend.Z - BlockingVolumeExtend.Z) - DeltaOfPivotToCenter;
-	//	bool bNewInputMode = bLeftShiftWasPressed || bLeftControlWasPressed || bLeftShiftWasReleased || bLeftControlWasReleased;
 
-	if (LocationToPlaceItem != NewPosition || bInputHasBeenChanged) { // Check if we need to update the phantom items
-		LocationToPlaceItem = NewPosition;
+	// Check if we need to update the phantom items
+	if (PlaceItemLocation != NewPosition || bInputHasBeenChanged) {
+		PlaceItemLocation = NewPosition;
 
 		// Deactivate all former phantom items
 		for (auto &elem : PhantomItems)
@@ -393,21 +419,24 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 			elem->SetActorEnableCollision(false);
 		}
 
+		// Empty the list of all PhantomItems
 		PhantomItems.Empty();
 
+		// Initialize the amounts of items to 1
 		int AmountOfItemsPossibleX = 1;
 		int AmountOfItemsPossibleY = 1;
 
 		FVector StartVector;
 
-		if (bLeftShiftIsHeldDown)
+		if (bRowModeKeyIsHeldDown)
 		{
 			// Placing a row
 
 			// Calculate how many items we can place in a row, based on the blocking volume and item extends
 			AmountOfItemsPossibleX = FMath::FloorToInt((2 * BlockingVolumeExtend.X) / (2 * ItemBoundExtend.X * (SpacingX + MINIMUM_GAP_BETWEEN_ITEMS)));
 
-			StartVector = GetRowStartPoint(BlockingVol, ItemTemplate, NewPosition); // This doesn't need DeltaOfPivotToCenter
+			// The new start position from which the row is build up. This doesn't need DeltaOfPivotToCenter
+			StartVector = GetRowStartPoint(BlockingVol, ItemTemplate, NewPosition);
 
 			if (bIsDebugMode)
 			{
@@ -416,7 +445,7 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 				DrawDebugLine(GetWorld(), BasePointPlane, BasePointPlane + BlockingVolumeExtend.Y * YAxis * 2, FColor::Blue, false, 3, 5);
 			}
 		}
-		else if (bLeftControlIsHeldDown)
+		else if (bWholeShelfModeKeyIsHeldDown)
 		{
 			// Fill with items
 
@@ -427,6 +456,7 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 			// The lower left corner of the blocking volume
 			FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis - BlockingVolumeExtend.Z * ZAxis;
 
+			// The new start position from which the items fill up the shelf
 			StartVector = BasePointPlane + ItemBoundExtend.X * XAxis + ItemBoundExtend.Y * YAxis + (ItemBoundExtend.Z + BlockingVolumeExtend.Z) * ZAxis - DeltaOfPivotToCenter;
 
 			if (bIsDebugMode)
@@ -438,6 +468,7 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 		}
 		else
 		{
+			// We're placing a single item
 			StartVector = NewPosition;
 		}
 
@@ -449,10 +480,11 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 				for (size_t j = 0; j < AmountOfItemsPossibleY; j++)
 				{
 					// Get clone of the item to display
-					AActor* Clone = GetCloneActor(ItemTemplate);
+					ARRefillObject* Clone = GetCloneActor(ItemTemplate);
 
 					if (Clone == nullptr) return;
 
+					// Add this clone to the list of PhantomItems
 					PhantomItems.Add(Clone);
 
 					// The points within the blocking volume
@@ -460,15 +492,16 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 					FVector RelativePointOnYAxis = (MINIMUM_GAP_BETWEEN_ITEMS + SpacingY) * YAxis * 2 * ItemBoundExtend.Y * j;
 					FVector RelativePositionOnZAxis = ZAxis * 2 * ItemBoundExtend.Z * s;
 
-					NewPosition = StartVector + RelativePointOnXAxis + RelativePointOnYAxis + RelativePositionOnZAxis;
+					FVector ItemPlacingLocation = StartVector + RelativePointOnXAxis + RelativePointOnYAxis + RelativePositionOnZAxis;
 
 					if (bIsDebugMode)
 					{
-						DrawDebugPoint(GetWorld(), NewPosition, 10, FColor::Green, false, 3);
+						DrawDebugPoint(GetWorld(), ItemPlacingLocation, 10, FColor::Green, false, 3);
 					}
 
-					Clone->SetActorLocation(NewPosition);
+					Clone->SetActorLocation(ItemPlacingLocation);
 
+					// Check for collisions
 					bItemCanBePlaced = CheckCollisions(Clone);
 
 					if (bItemCanBePlaced == false) return;
@@ -481,7 +514,7 @@ void UCPlaceItem::DisplayPhantomItem(FHitResult Hit)
 void UCPlaceItem::DisplayPhantomHookItem(FHitResult Hit)
 {
 	if (ItemTemplate == nullptr) return;
-	if (FTagStatics::HasKeyValuePair(ItemTemplate, "Refill", "Hookable", "True") == false) return; // The item we try to place on the hook is not a hookable item
+	if (ItemTemplate->ObjectInfo.bCanBeHookedUp == false) return; // The item we try to place on the hook is not a hookable item
 
 	// Deactivate all former phantom items
 	for (auto &elem : PhantomItems)
@@ -489,6 +522,7 @@ void UCPlaceItem::DisplayPhantomHookItem(FHitResult Hit)
 		elem->SetActorHiddenInGame(true);
 		elem->SetActorEnableCollision(false);
 	}
+
 	PhantomItems.Empty();
 
 	UActorComponent* HoleComponentAsActorComp = ItemTemplate->GetComponentByClass(UHoleTabComponent::StaticClass());
@@ -496,160 +530,144 @@ void UCPlaceItem::DisplayPhantomHookItem(FHitResult Hit)
 	UHoleTabComponent* HoleComponent = Cast<UHoleTabComponent>(HoleComponentAsActorComp);
 
 	// Calculate the position of the item on the hook, depending on the HoleTab's relative position
-
 	FVector CenterOfBox = Hit.GetComponent()->Bounds.GetBox().GetCenter();
 	float HookExtendOnX = Hit.GetComponent()->Bounds.GetBox().GetExtent().X;
 
-	ItemTemplate->K2_SetActorRotation(Rotation, true);// Set rotation before checking for extends
+	ItemTemplate->K2_SetActorRotation(PlaceItemRotation, true);// Set rotation before checking for extends
 
 	FVector ItemOrigin;
 	FVector ItemExtend;
 	ItemTemplate->GetActorBounds(false, ItemOrigin, ItemExtend);
 
+	ItemTemplate->SetActorRotation(Hit.GetComponent()->GetComponentRotation() + PlaceItemRotation); // Set item's rotation to blocking volume rotation + the item rotation
+
+	// *** Calculate amount of items 
 	int AmountOfItemsToPlace = 1;
 
-	ItemTemplate->SetActorRotation(Hit.GetComponent()->GetComponentRotation() + Rotation); // Set item's rotation to blocking volume rotation + the item rotation
-	// Calculate amount of items 
-
-	if (bLeftShiftIsHeldDown) {
+	if (bRowModeKeyIsHeldDown) {
 		AmountOfItemsToPlace = FMath::FloorToInt((2 * HookExtendOnX) / (2 * ItemExtend.X * (SpacingX + MINIMUM_GAP_BETWEEN_ITEMS)));
 	}
+	// *** *** *** ***
 
 	FVector XAxis = Hit.GetComponent()->GetRightVector();
-	FVector FrontItemPosition = CenterOfBox + HookExtendOnX * XAxis - HoleComponent->RelativeLocation;
+	FVector FrontItemPosition = CenterOfBox + HookExtendOnX * XAxis - HoleComponent->RelativeLocation; // The position at the front of the hook
 
+	// Show the phantom items
 	for (size_t i = 0; i < AmountOfItemsToPlace; i++)
 	{
 		FVector RelativePointOnXAxis = (MINIMUM_GAP_BETWEEN_ITEMS + SpacingX) * (-XAxis) * 2 * ItemExtend.X * i;
 
-		AActor* PhantomItem = GetCloneActor(ItemTemplate);
+		ARRefillObject* PhantomItem = GetCloneActor(ItemTemplate);
 		PhantomItems.Add(PhantomItem);
 		PhantomItem->SetActorLocation(FrontItemPosition + RelativePointOnXAxis);
 
+		// Check for collisions
 		bItemCanBePlaced = CheckCollisions(PhantomItem);
 	}
 
-	LastFocusedHook = Hit.GetComponent();
+	LastFocussedHook = Hit.GetComponent();
 }
 
-void UCPlaceItem::SelectItem(AActor * Item)
+void UCPlaceItem::SelectItem(ARRefillObject* Item)
 {
 	SelectedItems.Add(Item);
-
-	AStaticMeshActor* MeshActorOfItem = Cast<AStaticMeshActor>(Item);
-	if (MeshActorOfItem != nullptr) {
-		MeshActorOfItem->GetStaticMeshComponent()->SetRenderCustomDepth(true);
-	}
+	Item->GetStaticMeshComponent()->SetRenderCustomDepth(true); // Highlight the items
 }
 
 void UCPlaceItem::SelectRow()
 {
-	UActorComponent* HookComponent = FindHookOfItem(FocusedItem);
+	if (ItemManager != nullptr) {
+		UActorComponent* HookComponent = ItemManager->FindHookOfItem(FocussedItem);
 
-	if (HookComponent != nullptr) {
-		// It is an item on a hook
-		if (ItemsOnHook.Contains(HookComponent)) {
-			DeselectItems();
+		if (HookComponent != nullptr) {
+			// It is an item on a hook
+			if (ItemManager->ItemsOnHooks.Contains(HookComponent)) {
+				DeselectItems();
 
-			TArray<AActor*> AllItemsOnTheSameHook = ItemsOnHook[HookComponent];
+				TArray<ARRefillObject*> AllItemsOnTheSameHook = ItemManager->ItemsOnHooks[HookComponent]; // Get all other items on the same hook
 
-			for (auto& ItemOnHook : AllItemsOnTheSameHook) {
-				SelectItem(ItemOnHook);
+				for (auto& ItemOnHook : AllItemsOnTheSameHook) {
+					SelectItem(ItemOnHook); // Seletct all items on the same hook
+				}
+
+				UE_LOG(LogTemp, Log, TEXT("%s: Found %i hooked items"), *FString(__FUNCTION__), SelectedItems.Num());
+			}
+		}
+		else {
+			// It is a shelf item
+			ABlockingVolume* BlockingVol = FindShelfOfFocussedActor(); // Get the shelf the focused item is standing on
+
+			if (BlockingVol == nullptr)
+			{
+				if (SelectedItems.Contains(FocussedItem) == false)
+				{
+					SelectedItems.Add(FocussedItem); // There is no blocking volume. Select only focused item
+				}
+
+				return; // That wasn't a blocking volume we hit 
 			}
 
-			UE_LOG(LogTemp, Log, TEXT("%s: Found %i hooked items"), *FString(__FUNCTION__), SelectedItems.Num());
+			TArray<FHitResult> Hits;
+
+			// Start point is the point of the focused item
+			FVector StartVectorTemp = GetRowStartPoint(BlockingVol, FocussedItem, FocussedItem->GetActorLocation());
+			FVector StartVector = FVector(
+				StartVectorTemp.X,
+				StartVectorTemp.Y,
+				BlockingVol->GetActorLocation().Z + 2 * BlockingVol->Brush->Bounds.BoxExtent.Z
+			);
+
+			// End vector is a point at the end of the row. Starting from first point 'StartVecttor' and going from there along the x axis
+			FVector EndVector = StartVector + 2 * BlockingVol->Brush->Bounds.BoxExtent.X * BlockingVol->GetActorForwardVector();
+
+			FCollisionQueryParams TraceParams;
+			TraceParams.TraceTag = TAG_ITEM; //  Only hit Refill Items
+
+			GetWorld()->LineTraceMultiByChannel(Hits, StartVector, EndVector, ECollisionChannel::ECC_Pawn, TraceParams);
+
+			for (auto& elem : Hits)
+			{
+				ARRefillObject* HitActor = Cast<ARRefillObject>(elem.GetActor());
+
+				if (HitActor != nullptr && ItemManager->ListOfRefillTitemsPlacedInWorld.Contains(HitActor))
+				{
+					CheckStackedNeighbour(HitActor); // Check if this item has any other item stacked onto it
+					SelectItem(HitActor); // Select each single item
+				}
+			}
+
+			if (bIsDebugMode)
+			{
+				DrawDebugLine(GetWorld(), StartVector, EndVector, FColor::Blue, false, 3, 5);
+			}
 		}
 	}
-	else {
-		// It is a shelf item
-		ABlockingVolume* BlockingVol = FindShelf(FocusedItem); // Get the shelf the focused item is standing on
-
-		if (BlockingVol == nullptr)
-		{
-			if (SelectedItems.Contains(FocusedItem) == false)
-			{
-				SelectedItems.Add(FocusedItem); // There is no blocking volume. Select only focused item
-			}
-
-			return; // That wasn't a blocking volume we hit 
-		}
-
-		TArray<FHitResult> Hits;
-
-		// Start point is the point of the focused item
-		FVector StartVectorTemp = GetRowStartPoint(BlockingVol, FocusedItem, FocusedItem->GetActorLocation());
-		FVector StartVector = FVector(
-			StartVectorTemp.X,
-			StartVectorTemp.Y,
-			BlockingVol->GetActorLocation().Z + 2 * BlockingVol->Brush->Bounds.BoxExtent.Z
-		);
-
-		// End vector is a point at the end of the row. Starting from first point 'StartVecttor' and going from there along the x axis
-		FVector EndVector = StartVector + 2 * BlockingVol->Brush->Bounds.BoxExtent.X * BlockingVol->GetActorForwardVector();
-
-		FCollisionQueryParams TraceParams;
-		TraceParams.TraceTag = TAG_ITEM; //  Only hit Refill Items
-
-		GetWorld()->LineTraceMultiByChannel(Hits, StartVector, EndVector, ECollisionChannel::ECC_Pawn, TraceParams);
-
-		for (auto& elem : Hits)
-		{
-			AActor* HitActor = elem.GetActor();
-
-			if (HitActor != nullptr && ListOfRefillTitemsPlacedInWorld.Contains(HitActor))
-			{
-				//UStaticMeshComponent* MeshComp = GetStaticMesh(HitActor);
-				//if (MeshComp != nullptr)
-				//{
-				//	MeshComp->SetRenderCustomDepth(true);
-				//}
-
-				CheckStackedNeighbour(HitActor); // Check if this item has any other item stacked onto it
-				//SelectedItems.Add(HitActor); // Select the item
-				SelectItem(HitActor);
-			}
-		}
-
-		if (bIsDebugMode)
-		{
-			DrawDebugLine(GetWorld(), StartVector, EndVector, FColor::Blue, false, 3, 5);
-		}
-	}
-
-
-
 }
 
 void UCPlaceItem::SelectAllItems()
 {
-	ABlockingVolume* BlockingVol = FindShelf(FocusedItem);
+	ABlockingVolume* BlockingVol = FindShelfOfFocussedActor(); // Find the shelf the item is standing on
 
 	if (BlockingVol == nullptr)
 	{
-		if (SelectedItems.Contains(FocusedItem) == false)
+		if (SelectedItems.Contains(FocussedItem) == false)
 		{
-			SelectedItems.Add(FocusedItem); // Only select focused item
+			SelectedItems.Add(FocussedItem); // Only select focused item
 		}
 
 		return; // That wasn't a blocking volume we hit
 	}
 
 	TArray<AActor*> ItemsOnShelf;
-	BlockingVol->GetOverlappingActors(ItemsOnShelf);
+	BlockingVol->GetOverlappingActors(ItemsOnShelf); // Get all the actors touching the blocking volume
 
 	for (auto & HitActor : ItemsOnShelf)
 	{
-		if (ListOfRefillTitemsPlacedInWorld.Contains(HitActor))
+		ARRefillObject* CastedActor = Cast<ARRefillObject>(HitActor);
+		if (CastedActor != nullptr && ItemManager->ListOfRefillTitemsPlacedInWorld.Contains(CastedActor))
 		{
-			//UStaticMeshComponent* MeshComp = GetStaticMesh(HitActor);
-			//if (MeshComp != nullptr)
-			//{
-			//	MeshComp->SetRenderCustomDepth(true);
-			//}
-
-			CheckStackedNeighbour(HitActor); // Check if this item has any other item stacked onto it
-			// SelectedItems.Add(HitActor); // Select item
-			SelectItem(HitActor);
+			CheckStackedNeighbour(CastedActor); // Check if this item has any other item stacked onto it
+			SelectItem(CastedActor); // Select each single item
 		}
 	}
 }
@@ -664,57 +682,10 @@ void UCPlaceItem::DeselectItems()
 	SelectedItems.Empty();
 
 	// Re-enable outline for focusedItem if there is any, which means the player is still pointing at an item
-
-	if (FocusedItem != nullptr && bLeftShiftIsHeldDown == false && bLeftControlIsHeldDown == false)
+	if (FocussedItem != nullptr && bRowModeKeyIsHeldDown == false && bWholeShelfModeKeyIsHeldDown == false)
 	{
-		GetStaticMesh(FocusedItem)->SetRenderCustomDepth(true);
-		SelectedItems.Add(FocusedItem);
-	}
-}
-
-void UCPlaceItem::CreateConstraintsForHookableItems(AActor* HookableItem)
-{
-	if (LastFocusedHook == nullptr) {
-		UE_LOG(LogTemp, Warning, TEXT("%s: Trying to place an item on a hook but hook was not found"), *FString(__FUNCTION__));
-	}
-	else {
-		UPhysicsConstraintComponent* ConstraintComponent = NewObject<UPhysicsConstraintComponent>(HookableItem);
-
-		if (ConstraintComponent == nullptr) {
-			UE_LOG(LogTemp, Warning, TEXT("%s: Could not create constraint component on %s"), *FString(__FUNCTION__), *HookableItem->GetName());
-			return;
-		}
-
-		UPrimitiveComponent* HoleTabComponent = Cast<UPrimitiveComponent>(HookableItem->GetComponentByClass(UHoleTabComponent::StaticClass()));
-
-		if (HoleTabComponent == nullptr) {
-			UE_LOG(LogTemp, Warning, TEXT("%s: HoleTab Component not found on actor %s"), *FString(__FUNCTION__),*HookableItem->GetName());
-			return;
-		}
-
-		UPrimitiveComponent* ItemStaticMeshRootComponent = Cast<UPrimitiveComponent>(HookableItem->GetRootComponent());
-
-		ConstraintComponent->SetWorldLocation(HoleTabComponent->GetComponentLocation());
-
-		ConstraintComponent->AttachTo(HookableItem->GetRootComponent(), NAME_None, EAttachLocation::KeepWorldPosition);
-		ConstraintComponent->SetConstrainedComponents(ItemStaticMeshRootComponent, NAME_None, LastFocusedHook, NAME_None);
-
-		ConstraintComponent->SetDisableCollision(true);
-		ConstraintComponent->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-		ConstraintComponent->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Limited, 5.0f); // TODO Hardcoded limits
-		ConstraintComponent->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Limited, 5.0f);
-
-		UE_LOG(LogTemp, Log, TEXT("%s: Added constraint"), *FString(__FUNCTION__));
-
-		if (ItemsOnHook.Contains(LastFocusedHook)) {
-			ItemsOnHook[LastFocusedHook].Add(HookableItem);
-		}
-		else {
-			TArray<AActor*> NewActorArray;
-			NewActorArray.Add(HookableItem);
-			ItemsOnHook.Add(LastFocusedHook, NewActorArray);
-		}
-
+		GetStaticMesh(FocussedItem)->SetRenderCustomDepth(true);
+		SelectedItems.Add(FocussedItem);
 	}
 }
 
@@ -760,7 +731,7 @@ void UCPlaceItem::DecreaseStacking()
 
 void UCPlaceItem::StepRotation()
 {
-	Rotation += FRotator(0, 90, 0);
+	PlaceItemRotation += FRotator(0, 90, 0);
 	bInputHasBeenChanged = true;
 }
 
@@ -769,37 +740,41 @@ void UCPlaceItem::TogglePlacingRemovingState()
 	if (CurrentInteractionState == InteractionState::PLACING)
 	{
 		CurrentInteractionState = InteractionState::SELECTING;
-		DeactivatePhantomItems();
+		DeactivatePhantomItems(); // Deactivate all PhantomItems when switching to selection mode
 
 		GEngine->AddOnScreenDebugMessage(TextID_PlacingSelectingMode, 1000000.0f, FColor::Blue, "Current Mode: SELECTING", false);
 	}
 	else
 	{
 		CurrentInteractionState = InteractionState::PLACING;
-		FocusedItem = nullptr;
+		FocussedItem = nullptr; // We don't focuss anything anymore
 		GEngine->AddOnScreenDebugMessage(TextID_PlacingSelectingMode, 1000000.0f, FColor::Blue, "Current Mode: PLACING", false);
 	}
 }
 
-AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
+ARRefillObject* UCPlaceItem::GetCloneActor(ARRefillObject* ActorToClone)
 {
 	for (auto& object : ObjectPool) // First check the object pool if there is any unused object
 	{
-		if (object->bHidden) // Take the first object that is hidden
+		if (object->bHidden) // Take the first object that is hidden (= unused)
 		{
+			// Reaactivate the object
 			object->SetActorHiddenInGame(false);
 			object->SetActorEnableCollision(true);
 
 			UStaticMeshComponent* MeshComponent = GetStaticMesh(object);
 			UStaticMesh* MeshOfActorToClone = GetStaticMesh(ActorToClone)->GetStaticMesh();
 
+			// Setup the Mesh
 			if (MeshComponent->GetStaticMesh() != MeshOfActorToClone)
 			{
 				MeshComponent->SetStaticMesh(MeshOfActorToClone);
 			}
 
+			// ... and material
 			MeshComponent->SetMaterial(0, ItemMaterial);
 
+			// Enable physics and collision
 			MeshComponent->SetCollisionProfileName("OverlapAll");
 			MeshComponent->SetCollisionObjectType(ECollisionChannel::ECC_Pawn);
 			MeshComponent->SetSimulatePhysics(false);
@@ -808,6 +783,9 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 
 			object->K2_SetActorRotation(ItemTemplate->GetActorRotation(), false);
 
+			// Add the object information
+			object->ObjectInfo = ActorToClone->ObjectInfo;
+
 			return object;
 		}
 	}
@@ -815,7 +793,9 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 	// If we came here, we don't have an unused objects in the object pool. We create a new one
 	FActorSpawnParameters Parameters;
 	Parameters.Template = ActorToClone;
-	AActor* Clone = GetWorld()->SpawnActor<ARRefillObject>(ARRefillObject::StaticClass(), Parameters);
+
+	ARRefillObject* Clone = GetWorld()->SpawnActor<ARRefillObject>(ARRefillObject::StaticClass(), Parameters);
+	Clone->ObjectInfo = ActorToClone->ObjectInfo;
 
 	UStaticMeshComponent* MeshComponent = GetStaticMesh(Clone);
 
@@ -825,13 +805,7 @@ AActor * UCPlaceItem::GetCloneActor(AActor * ActorToClone)
 
 	ObjectPool.Add(Clone);
 
-	if (Clone->Tags.Contains(TAG_ITEM) == false)
-	{
-		Clone->Tags.Add(TAG_ITEM); // Set the item tag 
-	}
-
 	return Clone;
-
 }
 
 bool UCPlaceItem::CheckCollisions(AActor * Actor, UActorComponent* IgnoredComponent)
@@ -839,13 +813,13 @@ bool UCPlaceItem::CheckCollisions(AActor * Actor, UActorComponent* IgnoredCompon
 	UStaticMeshComponent* ActorMesh = GetStaticMesh(Actor);
 
 	bool bActorPlacable = true;
-	GetStaticMesh(Actor)->bGenerateOverlapEvents = true;
+	GetStaticMesh(Actor)->bGenerateOverlapEvents = true; // Make sure the item is generating overlap events
 
 	TArray<UPrimitiveComponent*> HitComponents;
-	Actor->GetOverlappingComponents(HitComponents);
+	Actor->GetOverlappingComponents(HitComponents); // Get all overlapping components
 
 	for (auto& elem : HitComponents) {
-		if (SetOfHooks.Contains(elem) == false && SetOfShelves.Contains(elem->GetOwner()) == false && PhantomItems.Contains(elem->GetOwner()) == false) {
+		if (ItemManager != nullptr && ItemManager->SetOfHooks.Contains(elem) == false && SetOfShelves.Contains(elem->GetOwner()) == false && PhantomItems.Contains(elem->GetOwner()) == false) {
 			// It's not a shelf or hook and not another phantom item
 			UE_LOG(LogTemp, Log, TEXT("%s: Overlapping with %s of actor %s"), *FString(__FUNCTION__), *elem->GetName(), *elem->GetOwner()->GetName());
 			bActorPlacable = false;
@@ -856,7 +830,7 @@ bool UCPlaceItem::CheckCollisions(AActor * Actor, UActorComponent* IgnoredCompon
 	if (bActorPlacable == false)
 	{
 		// Apply the red material to every phantom object
-		if (RedMaterial != nullptr)
+		if (CollisionMaterial != nullptr)
 		{
 			for (auto &elem : PhantomItems)
 			{
@@ -865,7 +839,7 @@ bool UCPlaceItem::CheckCollisions(AActor * Actor, UActorComponent* IgnoredCompon
 
 				if (Mesh != nullptr)
 				{
-					Mesh->SetMaterial(0, RedMaterial);
+					Mesh->SetMaterial(0, CollisionMaterial);
 				}
 			}
 		}
@@ -900,17 +874,19 @@ void UCPlaceItem::OnNewItemSpawned(AActor* SpawnedActor)
 {
 	if (SpawnedActor != nullptr)
 	{
-		ItemMaterial = GetStaticMesh(SpawnedActor)->GetMaterial(0);
-	} 
+		ItemMaterial = GetStaticMesh(SpawnedActor)->GetMaterial(0); // Get the material of the newly spawned item
+	}
 
-	ItemTemplate = SpawnedActor; // Get the selected item from the asset loader
+	ItemTemplate = Cast<ARRefillObject>(SpawnedActor); // Assign the newly spawned actor as the new ItemTemplate
 
 	if (ItemTemplate != nullptr)
 	{
-		GetStaticMesh(ItemTemplate)->SetMaterial(0, ItemMaterial);
-		
-		if (CurrentInteractionState == InteractionState::SELECTING) TogglePlacingRemovingState();
+		GetStaticMesh(ItemTemplate)->SetMaterial(0, ItemMaterial); // Set the material of the new ItemTemplate to the material of the newly spawned item
+
+		if (CurrentInteractionState == InteractionState::SELECTING) TogglePlacingRemovingState(); // Switch to PlacingMode if neccessary
 	}
+
+	ObjectPool.Empty(); // Clear out the object pool
 }
 
 FVector UCPlaceItem::GetRowStartPoint(ABlockingVolume* BlockingVolume, AActor* ItemToStartFrom, FVector ImpactPoint)
@@ -921,15 +897,18 @@ FVector UCPlaceItem::GetRowStartPoint(ABlockingVolume* BlockingVolume, AActor* I
 	FVector YAxis = BlockingVolume->GetActorRightVector();
 	FVector BlockingVolumeOrigin = BlockingVolume->GetActorLocation();
 
+	// *** Item bounds ***
 	FVector ItemOrigin;
 	FVector ItemBoundExtend;
 	ItemToStartFrom->GetActorBounds(false, ItemOrigin, ItemBoundExtend);
+	// *** *** *** *** ***
 
 	FVector SecondPointOfLine = ImpactPoint - BlockingVolumeExtend.X * XAxis;
-	FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis;
+	FVector BasePointPlane = BlockingVolumeOrigin - BlockingVolumeExtend.X * XAxis - BlockingVolumeExtend.Y * YAxis; // The position vector of the plane
 	FVector NormalVectorOfPlane = XAxis;
 
-	FVector IntersectionLinePlane = FMath::LinePlaneIntersection(ImpactPoint, SecondPointOfLine, BasePointPlane, NormalVectorOfPlane);
+	// The point of intersection between the line and the plane
+	FVector IntersectionLinePlane = FMath::LinePlaneIntersection(ImpactPoint, SecondPointOfLine, BasePointPlane, NormalVectorOfPlane); 
 
 	FVector StartVector = IntersectionLinePlane + ItemBoundExtend.X * XAxis;
 	return StartVector;
@@ -949,21 +928,15 @@ void UCPlaceItem::CheckStackedNeighbour(AActor * FromActor)
 	FVector StackEndVector = StackStartVector + FromActor->GetActorUpVector() * HitActorExtend * 2;
 
 	GetWorld()->LineTraceMultiByChannel(StackHits, StackStartVector, StackEndVector, ECollisionChannel::ECC_Pawn, TraceParamsStack);
+	// *** *** *** *** *** *** *** *** *** *** *** 
 
 	for (const auto& elem : StackHits)
 	{
-		AActor* StackedActor = elem.GetActor();
-		if (StackedActor != nullptr && ListOfRefillTitemsPlacedInWorld.Contains(StackedActor)/*StackedActor->Tags.Contains(ItemTag)*/)
+		ARRefillObject* StackedActor = Cast<ARRefillObject>(elem.GetActor());
+		if (StackedActor != nullptr && ItemManager->ListOfRefillTitemsPlacedInWorld.Contains(StackedActor))
 		{
-			//UStaticMeshComponent* MeshCompStackItem = GetStaticMesh(StackedActor);
-			//if (MeshCompStackItem != nullptr)
-			//{
-			//	MeshCompStackItem->SetRenderCustomDepth(true);
-			//}
-
-			if (SelectedItems.Contains(StackedActor) == false)
+			if (SelectedItems.Contains(StackedActor) == false) // Check if we already selected this item
 			{
-				//SelectedItems.Add(StackedActor);
 				SelectItem(StackedActor);
 				CheckStackedNeighbour(StackedActor); // Call recursivly
 			}
@@ -971,18 +944,19 @@ void UCPlaceItem::CheckStackedNeighbour(AActor * FromActor)
 	}
 }
 
-ABlockingVolume * UCPlaceItem::FindShelf(AActor * FromActor)
+ABlockingVolume * UCPlaceItem::FindShelfOfFocussedActor()
 {
 	ABlockingVolume* BlockingVol = nullptr;
 
 	TArray<FHitResult> BlockingVolumeHits;
 	FCollisionQueryParams TraceParams;
 	TraceParams.TraceTag = FName(TAG_SHELF);
-	TraceParams.AddIgnoredActor(FocusedItem);
+	TraceParams.AddIgnoredActor(FocussedItem);
 
-	FVector StartVector = FocusedItem->GetActorLocation();
-	FVector EndVector = StartVector - FocusedItem->GetActorUpVector() * 100.0f; // Quite long vector
+	FVector StartVector = FocussedItem->GetActorLocation();
+	FVector EndVector = StartVector - FocussedItem->GetActorUpVector() * 100.0f; // Quite long vector
 
+	// Raycast down to find the blocking volume the item is standing in
 	GetWorld()->LineTraceMultiByChannel(BlockingVolumeHits, StartVector, EndVector, ECollisionChannel::ECC_Camera, TraceParams);
 
 	for (auto & elem : BlockingVolumeHits)
@@ -999,41 +973,6 @@ ABlockingVolume * UCPlaceItem::FindShelf(AActor * FromActor)
 	return BlockingVol;
 }
 
-UActorComponent * UCPlaceItem::FindHookOfItem(AActor * Item)
-{
-	UActorComponent* HoleTabComponent = Item->GetComponentByClass(UHoleTabComponent::StaticClass());
-
-	if (HoleTabComponent != nullptr) {
-
-		UActorComponent* HookConstraintAsActorComp = FocusedItem->GetComponentByClass(UPhysicsConstraintComponent::StaticClass());
-		if (HookConstraintAsActorComp != nullptr) {
-			UPhysicsConstraintComponent* HookConstraint = Cast<UPhysicsConstraintComponent>(HookConstraintAsActorComp);
-
-			UActorComponent* HookComponent = nullptr;
-
-			// Get the UActorComponent of the hook
-			if (HookConstraint != nullptr) {
-				if (HooknamesToHookComponent.Contains(HookConstraint->ComponentName1.ComponentName)) {
-					HookComponent = HooknamesToHookComponent[HookConstraint->ComponentName1.ComponentName];
-				}
-				else if (HooknamesToHookComponent.Contains(HookConstraint->ComponentName2.ComponentName)) {
-					HookComponent = HooknamesToHookComponent[HookConstraint->ComponentName2.ComponentName];
-				}
-				else {
-					UE_LOG(LogTemp, Warning, TEXT("%s: No hook was found"), *FString(__FUNCTION__));
-				}
-			}
-			else {
-				UE_LOG(LogTemp, Warning, TEXT("%s: No hook constraint was found"), *FString(__FUNCTION__));
-			}
-
-			return HookComponent;
-		}
-	}
-
-	return nullptr;
-}
-
 void UCPlaceItem::DeactivatePhantomItems()
 {
 	for (auto &elem : PhantomItems)
@@ -1047,7 +986,7 @@ void UCPlaceItem::DeactivatePhantomItems()
 
 void UCPlaceItem::OnFirePressed()
 {
-	if (FocusedItem == nullptr)
+	if (FocussedItem == nullptr)
 	{
 		PlaceItems();
 	}
@@ -1059,15 +998,15 @@ void UCPlaceItem::OnFirePressed()
 
 void UCPlaceItem::OnKeyRowModePressed()
 {
-	bLeftShiftWasPressed = true;
-	bLeftShiftIsHeldDown = true;
+	bRowModeKeyWasPressed = true;
+	bRowModeKeyIsHeldDown = true;
 	bInputHasBeenChanged = true;
 }
 
 void UCPlaceItem::OnKeyRowModeReleased()
 {
-	bLeftShiftWasReleased = true;
-	bLeftShiftIsHeldDown = false;
+	bRowModeKeyWasReleased = true;
+	bRowModeKeyIsHeldDown = false;
 	bInputHasBeenChanged = true;
 
 	DeselectItems();
@@ -1075,26 +1014,26 @@ void UCPlaceItem::OnKeyRowModeReleased()
 
 void UCPlaceItem::OnKeyWholeShelfModePressed()
 {
-	bLeftControlWasPressed = true;
-	bLeftControlIsHeldDown = true;
+	bWholeShelfModeKeyWasPressed = true;
+	bWholeShelfModeKeyIsHeldDown = true;
 	bInputHasBeenChanged = true;
 }
 
 void UCPlaceItem::OnKeyWholeShelfModeReleased()
 {
-	bLeftControlWasReleased = true;
-	bLeftControlIsHeldDown = false;
+	bWholeShelfModeKeyWasReleased = true;
+	bWholeShelfModeKeyIsHeldDown = false;
 	bInputHasBeenChanged = true;
 
 	DeselectItems();
 }
 
 void UCPlaceItem::ResetInputKeys() {
-	bLeftShiftWasPressed = false;
-	bLeftShiftWasReleased = false;
+	bRowModeKeyWasPressed = false;
+	bRowModeKeyWasReleased = false;
 
-	bLeftControlWasPressed = false;
-	bLeftControlWasReleased = false;
+	bWholeShelfModeKeyWasPressed = false;
+	bWholeShelfModeKeyWasReleased = false;
 
 	bInputHasBeenChanged = false;
 }
